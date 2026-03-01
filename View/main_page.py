@@ -88,3 +88,5 @@ class MainPage:
         self.root.bind_all("<Button-5>", on_mousewheel)  # Linux runter
 
         print("🖱️ Mausrad-Scrolling für normale Mäuse aktiviert")
+
+

@@ -158,34 +158,38 @@ class MainPageController:
         return kontext
 
     def create_snipped(self, parent, title, body):
-        """
-        Erstellt eine Snippet-Card.
-
-        Args:
-            parent: Das Parent-Widget (scrollable)
-            title: Der Titel (Dateiname mit Hinweis)
-            body: Der Body-Text (Snippet oder Pfad)
-
-        Returns:
-            Das erstellte Frame
-        """
         snipped = ttk.Frame(parent, padding=10)
         snipped.pack(fill="x", pady=6)
 
-        title_label = ttk.Label(
-            snipped,
-            text=title,
-            font=("", 14, "bold"),
-            bootstyle="info"
-        )
+        title_label = ttk.Label(snipped, text=title, font=("", 14, "bold"), bootstyle="info")
         title_label.pack(anchor="w")
+        title_label.visited = False
 
-        body_label = ttk.Label(
-            snipped,
-            text=body,
-            wraplength=900,
-            style="White.TLabel"
-        )
+        body_label = ttk.Label(snipped, text=body, wraplength=900, style="White.TLabel")
         body_label.pack(anchor="w", pady=(4, 0))
 
+
+        def on_enter(e):
+            title_label.configure(font=("", 14, "bold underline"))
+
+        def on_leave(e):
+            if title_label.visited:
+                title_label.configure(font=("", 14, "bold"))
+            else:
+                title_label.configure(bootstyle="info", font=("", 14, "bold"))
+
+        def on_click(e):
+            title_label.visited = True
+            title_label.configure(bootstyle="danger", font=("", 14, "bold"))
+
+        title_label.bind("<Enter>", on_enter)
+        title_label.bind("<Leave>", on_leave)
+        title_label.bind("<Button-1>", on_click)
+        title_label.configure(cursor="hand2")
+
+        for e in [snipped, body_label]:
+            e.bind("<Enter>", lambda e: e.widget.configure(cursor="hand2"))
+            e.bind("<Leave>", lambda e: e.widget.configure(cursor=""))
+
         return snipped
+
