@@ -39,13 +39,13 @@ class ReaderService:
         try:
             # Prüfe ob Datei existiert
             if not os.path.exists(filepath):
-                print(f"❌ Datei nicht gefunden: {filepath}")
+                print(f"❓ Datei nicht gefunden: {filepath}")
                 return None
 
             # Prüfe ob Format unterstützt wird
             ext = os.path.splitext(filepath)[1].lower()
             if ext not in self.supported_extensions:
-                print(f"⚠️ Format nicht unterstützt: {ext}")
+                print(f"⚠️ Format nicht unterstützt: {filepath}")
                 return None
 
             # Text mit textract extrahieren
