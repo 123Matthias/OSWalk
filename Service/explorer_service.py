@@ -1,5 +1,7 @@
 import os
+import threading
 import unicodedata
+from threading import Thread
 from typing import List, Tuple, Optional, Generator
 
 
@@ -7,14 +9,21 @@ class ExplorerService:
     def __init__(self):
         pass
 
-    def walk_files(self, directory: str, recursive: bool = True) -> Generator[str, None, None]:
+    def walk_files(self, directory: str, recursive: bool = True, cancel_thread_event = None) -> Generator[str, None, None]:
         """
         Generiert alle Dateipfade in einem Verzeichnis (optional rekursiv).
         Dies ist die einzige Stelle, die os.walk aufruft.
         """
+        if cancel_thread_event.is_set():
+            print(threading.current_thread().name + "wird beendet")
+            return
+
         if recursive:
             for root, dirs, files in os.walk(directory):
                 for file in files:
+                    if cancel_thread_event.is_set():
+                        print(threading.current_thread().name + "wird beendet")
+                        return
                     yield os.path.join(root, file)
         else:
             try:
@@ -26,7 +35,7 @@ class ExplorerService:
                 # Bei Zugriffsfehlern einfach ignorieren und weitermachen
                 pass
 
-    def collect_file_info(self, directory: str, recursive: bool = True) -> Tuple[List[str], int]:
+    def collect_file_info(self, directory: str, recursive: bool = True, cancel_thread_event = None) -> Tuple[List[str], int]:
         """
         Sammelt einmalig alle Dateipfade und zählt sie gleichzeitig.
         Gibt ein Tuple zurück: (liste_aller_dateien, anzahl_dateien)
@@ -34,7 +43,7 @@ class ExplorerService:
         all_files = []
         count = 0
 
-        for filepath in self.walk_files(directory, recursive):
+        for filepath in self.walk_files(directory, recursive, cancel_thread_event):
             all_files.append(filepath)
             count += 1
         return all_files, count

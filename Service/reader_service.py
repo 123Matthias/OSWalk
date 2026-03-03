@@ -45,7 +45,7 @@ class ReaderService:
             # Prüfe ob Format unterstützt wird
             ext = os.path.splitext(filepath)[1].lower()
             if ext not in self.supported_extensions:
-                print(f"⚠️ Format nicht unterstützt: {filepath}")
+               # print(f"⚠️ Format nicht unterstützt: {filepath}")
                 return None
 
             # Text mit textract extrahieren

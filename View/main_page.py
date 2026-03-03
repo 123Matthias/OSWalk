@@ -10,11 +10,12 @@ from View.gui_console import GUIConsole
 class MainPage:
     def __init__(self, controller):
         self.controller = controller
-        self.controller.set_view(self)
 
         self.root = ttk.Window(themename="darkly")
         self.root.title("OSWalk")
         self.root.geometry("900x700")
+
+        self.controller.set_view(self)
 
         # Service-Instanz
         self.explorer_service = ExplorerService()
