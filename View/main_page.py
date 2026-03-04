@@ -1,203 +1,610 @@
-from ensurepip import bootstrap
-from textwrap import fill
-import tkinter as tk
+import os
+import sys
 import threading
-import ttkbootstrap as ttk
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QLineEdit, QProgressBar, QScrollArea,
+    QFrame, QSplitter, QSizePolicy
+)
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject, QTimer, Property
+from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QPainter, QBrush, QLinearGradient, QKeySequence, QShortcut
+from PySide6.QtWidgets import QApplication
 from Service.explorer_service import ExplorerService
 from View.gui_console import GUIConsole
 
 
-class MainPage:
+class AnimatedToggle(QPushButton):
+    """Animierter Toggle-Button für die Konsole"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setFixedSize(40, 40)
+        self._color = QColor("#00bc8c")
+        self._animation = QPropertyAnimation(self, b"color")
+        self._animation.setDuration(200)
+        self._animation.setEasingCurve(QEasingCurve.InOutQuad)
+
+    def get_color(self):
+        return self._color
+
+    def set_color(self, color):
+        self._color = color
+        self.update()
+
+    color = Property(QColor, get_color, set_color)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # Zeichne den Kreis-Hintergrund
+        painter.setBrush(QBrush(self._color))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(4, 4, 32, 32)
+
+        # Zeichne das Symbol
+        painter.setPen(QColor("white"))
+        font = QFont("Arial", 16)
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignCenter, "⌘" if self.isChecked() else "⌃")
+
+    def toggle(self):
+        self._animation.setStartValue(self._color)
+        self._animation.setEndValue(QColor("#f39c12") if self.isChecked() else QColor("#00bc8c"))
+        self._animation.start()
+
+
+class SearchResultCard(QFrame):
+    """Moderne Karte für Suchergebnisse mit verbessertem Feedback"""
+
+    clicked = Signal(str)  # Signal mit dem Pfad
+
+    def mousePressEvent(self, event):
+        # 🔥 Wenn Card geklickt wird, emittet sie den Pfad!
+        self.clicked.emit(self.rel_path)
+        super().mousePressEvent(event)
+
+    def __init__(self, title, body, treffer_typ, rel_path, parent=None):
+        super().__init__(parent)
+        self.setObjectName("resultCard")
+        self.setFrameStyle(QFrame.NoFrame)
+        self.setCursor(Qt.PointingHandCursor)
+        self._is_pressed = False
+        self.rel_path = rel_path
+
+        # Schatten-Effekt durch Styling
+        self.setStyleSheet("""
+            #resultCard {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #2c2c2c, stop:1 #2a2a2a);
+                border: 1px solid #3c3c3c;
+                border-radius: 8px;
+                margin: 4px 0px;
+            }
+            #resultCard:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #3c3c3c, stop:1 #3a3a3a);
+                border: 1px solid #4c4c4c;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
+
+        # Icon und Titel
+        title_layout = QHBoxLayout()
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("""
+            font-size: 16px;
+            font-weight: bold;
+            color: #00bc8c;
+            background-color: none;
+        """)
+        title_layout.addWidget(self.title_label)
+        title_layout.addStretch()
+
+        # Typ-Badge
+        badge = QLabel(treffer_typ.upper())
+        badge.setStyleSheet(f"""
+            background-color: none;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+        """)
+        title_layout.addWidget(badge)
+
+        layout.addLayout(title_layout)
+
+        # Body mit schönerer Darstellung
+        body_label = QLabel(body)
+        body_label.setWordWrap(True)
+        body_label.setStyleSheet("""
+            color: #b0b0b0;
+            font-size: 13px;
+            padding: 4px 0px;
+            background-color: none;
+        """)
+        body_label.setTextFormat(Qt.PlainText)
+        layout.addWidget(body_label)
+
+
+
+class MainPage(QMainWindow):
     def __init__(self, controller):
+        super().__init__()
         self.controller = controller
-
-        self.root = ttk.Window(themename="darkly")
-        self.root.title("OSWalk")
-        self.root.geometry("900x700")
-
         self.controller.set_view(self)
 
         # Service-Instanz
         self.explorer_service = ExplorerService()
 
-        # Header
-        self.header = ttk.Frame(self.root)
-        self.header.pack(padx=(50, 50), pady=(40, 10), fill="x")
+        # Fenster-Setup
+        self.setWindowTitle("OSWalk")
+        self.setMinimumSize(1000, 700)
 
-        self.title_os = ttk.Label(self.header, text="OS", font=("", 32, "bold"), bootstyle="info")
-        self.title_os.pack(side="left", padx=(0, 2))
+        # Zentrales Widget und Hauptlayout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(30, 30, 30, 30)
 
-        self.title_walk = ttk.Label(self.header, text="Walk", font=("", 32, "bold"), bootstyle="warning")
-        self.title_walk.pack(side="left", padx=(0, 12))
+        # Header mit animiertem Titel
+        self.setup_header(main_layout)
 
-        self.keywords = ttk.Entry(self.header, bootstyle="light", font=("", 16))
-        self.keywords.pack(side="left", fill="x", expand=True)
-        self.keywords.bind("<Return>", lambda e: self.controller.search())
+        # Fortschrittsleiste und Toggle
+        self.setup_progress_section(main_layout)
 
-        # ===== PROGRESS FRAME (Button + Progressbar inline) =====
-        progress_frame = ttk.Frame(self.root)
-        progress_frame.pack(fill="x", padx=50, pady=10)
+        # Pfad-Anzeige
+        self.setup_path_label(main_layout)
 
-        # Toggle-Button LINKS im Progress-Frame
-        self.toggle_btn = ttk.Button(
-            progress_frame,
-            text="❯_",
-            command=self.toggle_console,
-            bootstyle="warning-outline",
-            width=3
-        )
-        self.toggle_btn.pack(side="left", padx=(0, 5))
+        # Haupt-Splitter für Ergebnisse und Konsole
+        self.setup_main_splitter(main_layout)
 
-        # Progressbar RECHTS vom Button (nimmt restlichen Platz)
-        self.progress_state = tk.DoubleVar(master=self.root, value=0)
-        progress_bar = ttk.Progressbar(
-            progress_frame,
-            bootstyle="info-striped",
-            orient="horizontal",
-            variable=self.progress_state
-        )
-        progress_bar.pack(side="left", fill="x", expand=True)
+        # Styling anwenden
+        self.apply_modern_style()
 
-        # Pfad-Label
-        self.pfad_label = ttk.Label(self.root, text="Kein Pfad gewählt", bootstyle="light")
-        self.pfad_label.pack(pady=(10, 5))
-
-        # Button
-        self.btn = ttk.Button(self.root, text="choose-path", bootstyle="darkly", command=self.controller.choose_path)
-        self.btn.pack(pady=(0, 10))
-        self.btn.bind("<Enter>", self._on_btn_enter)
-        self.btn.bind("<Leave>", self._on_btn_leave)
-
-        # ===== PANED WINDOW =====
-        self.console_pane = ttk.Panedwindow(self.root, orient='vertical', bootstyle="darkly")
-        self.console_pane.pack(fill='both', expand=True, padx=10, pady=5)
+        # Variablen für Animationen
         self.console_visible = True
+        self.progress_animation = None
+        self.result_count = 0
 
-        # === OBERER TEIL: Results ===
-        self.results_wrap = ttk.Frame(self.console_pane)
-        self.console_pane.add(self.results_wrap, weight=3)
+        # Keyboard Shortcuts
+        self.setup_keyboard_shortcuts()
 
-        # Canvas für Scrolling
-        self.canvas = ttk.Canvas(self.results_wrap, highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(self.results_wrap, orient="vertical", command=self.canvas.yview, bootstyle="info")
-        self.scrollable_frame = ttk.Frame(self.canvas)
+    def setup_keyboard_shortcuts(self):
+        """Keyboard-Navigation einrichten"""
+        # ESC zum Schließen der Konsole
+        QShortcut(QKeySequence.Cancel, self, self.toggle_console_shortcut)
+        # Ctrl+A zum Fokus auf Suchfeld
+        QShortcut(QKeySequence(Qt.CTRL | Qt.Key_L), self, self.focus_search)
 
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        self.scrollable_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+    def focus_search(self):
+        """Focus auf das Suchfeld"""
+        self.keywords.setFocus()
+        self.keywords.selectAll()
 
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+    def toggle_console_shortcut(self):
+        """Konsole via Shortcut umschalten"""
+        self.toggle_btn.setChecked(not self.toggle_btn.isChecked())
 
-        # === UNTERER TEIL: Konsole ===
-        self.console_frame = ttk.Labelframe(self.console_pane, text="Console", bootstyle="warning")
-        self.console_pane.add(self.console_frame, weight=1)
+    def setup_header(self, parent_layout):
+        """Moderner Header mit Suchfeld"""
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setSpacing(10)
 
-        # GUIConsole
-        self.console = GUIConsole(self.console_frame, height=8)
-        self.console.pack(fill='both', expand=True, padx=5, pady=5)
+        # Animierter Titel
+        title_widget = QWidget()
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setSpacing(2)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+
+        os_label = QLabel("OS")
+        os_label.setStyleSheet("""
+            font-size: 36px;
+            font-weight: bold;
+            color: #00bc8c;
+        """)
+
+        walk_label = QLabel("Walk")
+        walk_label.setStyleSheet("""
+            font-size: 36px;
+            font-weight: bold;
+            color: #f39c12;
+        """)
+
+        title_layout.addWidget(os_label)
+        title_layout.addWidget(walk_label)
+        title_layout.addStretch()
+
+        header_layout.addWidget(title_widget)
+
+        # Modernes Suchfeld
+        self.keywords = QLineEdit()
+        self.keywords.setPlaceholderText("🔍 Suchbegriffe eingeben... (Enter drücken | Ctrl+L)")
+        self.keywords.setMinimumHeight(40)
+        self.keywords.setStyleSheet("""
+            QLineEdit {
+                background-color: #2c2c2c;
+                border: 2px solid #3c3c3c;
+                border-radius: 20px;
+                padding: 8px 20px;
+                font-size: 14px;
+                color: white;
+            }
+            QLineEdit:focus {
+                border: 2px solid #00bc8c;
+            }
+        """)
+        self.keywords.returnPressed.connect(self.controller.search)
+        header_layout.addWidget(self.keywords)
+
+        # Choose Path Button mit Icon
+        self.btn = QPushButton("📁 Pfad auswählen")
+        self.btn.setMinimumHeight(40)
+        self.btn.setCursor(Qt.PointingHandCursor)
+        self.btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2c2c2c;
+                border: 2px solid #3c3c3c;
+                border-radius: 20px;
+                padding: 8px 20px;
+                font-size: 14px;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #3c3c3c;
+                border: 2px solid #00bc8c;
+                color: #00bc8c;
+            }
+            QPushButton:pressed {
+                background-color: #1c1c1c;
+            }
+        """)
+        self.btn.clicked.connect(self.controller.choose_path)
+        header_layout.addWidget(self.btn)
+
+        parent_layout.addWidget(header_widget)
+
+    def setup_progress_section(self, parent_layout):
+        """Fortschrittsleiste mit Toggle-Button und Loading-Indicator"""
+        progress_widget = QWidget()
+        progress_layout = QHBoxLayout(progress_widget)
+        progress_layout.setSpacing(10)
+
+        # Animierter Toggle-Button
+        self.toggle_btn = AnimatedToggle()
+        self.toggle_btn.toggled.connect(self.toggle_console)
+        progress_layout.addWidget(self.toggle_btn)
+
+        # Fortschrittsleiste
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimumHeight(8)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #2c2c2c;
+                border: none;
+                border-radius: 4px;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #00bc8c, stop:1 #f39c12);
+                border-radius: 4px;
+            }
+        """)
+        progress_layout.addWidget(self.progress_bar)
+
+        # Loading-Status Label
+        self.search_label = QLabel()
+        self.search_label.setStyleSheet("""
+            color: #f39c12;
+            font-size: 12px;
+            font-weight: bold;
+            min-width: 150px;
+        """)
+        self.search_label.setVisible(False)
+        progress_layout.addWidget(self.search_label)
+
+        parent_layout.addWidget(progress_widget)
+
+    def setup_path_label(self, parent_layout):
+        """Pfad-Anzeige mit gekürzte langen Pfade"""
+        self.pfad_label = QLabel("Kein Pfad gewählt")
+        self.pfad_label.setAlignment(Qt.AlignCenter)
+        self.pfad_label.setStyleSheet("""
+            color: #b0b0b0;
+            font-size: 14px;
+            padding: 10px;
+            background-color: #2c2c2c;
+            border-radius: 8px;
+            border-left: 3px solid #00bc8c;
+        """)
+        parent_layout.addWidget(self.pfad_label)
+
+    def setup_main_splitter(self, parent_layout):
+        """Splitter für Ergebnisse und Konsole"""
+        self.splitter = QSplitter(Qt.Vertical)
+
+        # Ergebnis-Bereich mit ScrollArea
+        self.setup_results_area()
+
+        # Konsolen-Bereich
+        self.setup_console_area()
+
+        self.splitter.addWidget(self.results_scroll)
+        self.splitter.addWidget(self.console_container)
+        self.splitter.setSizes([500, 200])
+        self.splitter.setHandleWidth(8)
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #2c2c2c;
+                border-radius: 4px;
+            }
+            QSplitter::handle:hover {
+                background-color: #3c3c3c;
+            }
+        """)
+
+        parent_layout.addWidget(self.splitter)
+
+    def setup_results_area(self):
+        """Scrollbarer Bereich für Ergebnisse mit Empty State"""
+        self.results_scroll = QScrollArea()
+        self.results_scroll.setWidgetResizable(True)
+        self.results_scroll.setFrameStyle(QFrame.NoFrame)
+        self.results_scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: #1e1e1e;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background-color: #2c2c2c;
+                width: 12px;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #00bc8c;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #f39c12;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+        """)
+
+        self.results_container = QWidget()
+        self.results_layout = QVBoxLayout(self.results_container)
+        self.results_layout.setAlignment(Qt.AlignTop)
+        self.results_layout.setSpacing(10)
+        self.results_layout.setContentsMargins(10, 10, 10, 10)
+
+        # Empty State Label (wird beim Hinzufügen von Ergebnissen versteckt)
+        self.empty_state_label = QLabel("🔍 Noch keine Suchergebnisse")
+        self.empty_state_label.setAlignment(Qt.AlignCenter)
+        self.empty_state_label.setStyleSheet("""
+            color: #666666;
+            font-size: 16px;
+            padding: 40px 20px;
+            font-style: italic;
+        """)
+        self.results_layout.addWidget(self.empty_state_label)
+
+        self.results_scroll.setWidget(self.results_container)
+
+    def setup_console_area(self):
+        """Konsolen-Bereich mit besseres Layout"""
+        self.console_container = QWidget()
+        console_layout = QVBoxLayout(self.console_container)
+        console_layout.setContentsMargins(0, 0, 0, 0)
+        console_layout.setSpacing(0)
+
+        # Konsolen-Label mit Icon
+        console_label = QLabel("📟 Konsole")
+        console_label.setStyleSheet("""
+            color: #f39c12;
+            font-size: 12px;
+            font-weight: bold;
+            padding: 8px 12px;
+            background-color: #2c2c2c;
+            border-bottom: 1px solid #3c3c3c;
+        """)
+        console_layout.addWidget(console_label)
+
+        # GUIConsole direkt einbetten
+        self.console = GUIConsole(self.console_container, height=12)
         self.console.redirect()
+        console_layout.addWidget(self.console)
 
-        # Mausrad-Scrolling
-        self._enable_mousewheel()
+        # Stelle sicher, dass die Console beim Schließen restored wird
+        self.destroyed.connect(self.console.restore)
 
-        self.root.mainloop()
+    def apply_modern_style(self):
+        """Style für die gesamte App in QSS"""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            QWidget {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                font-family: 'Arial', 'Helvetica', sans-serif;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QPushButton {
+                background-color: #2c2c2c;
+                border: 1px solid #3c3c3c;
+                border-radius: 4px;
+                padding: 6px 12px;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #3c3c3c;
+                border: 1px solid #00bc8c;
+            }
+            QPushButton:pressed {
+                background-color: #1c1c1c;
+            }
+        """)
 
-    def _enable_mousewheel(self):
-        """Mausrad-Scrolling für Canvas"""
-
-        def on_mousewheel(event):
-            # Canvas scrollen
-            if event.delta:
-                steps = int(-1 * (event.delta / 60))
-                self.canvas.yview_scroll(steps, "units")
-            elif event.num == 4:
-                self.canvas.yview_scroll(-1, "units")
-            elif event.num == 5:
-                self.canvas.yview_scroll(1, "units")
-            return "break"
-
-        # Global binden mit Positionsprüfung
-        def on_global_mousewheel(event):
-            mouse_x = event.x_root
-            mouse_y = event.y_root
-
-            canvas_x = self.canvas.winfo_rootx()
-            canvas_y = self.canvas.winfo_rooty()
-            canvas_w = self.canvas.winfo_width()
-            canvas_h = self.canvas.winfo_height()
-
-            if (canvas_x <= mouse_x <= canvas_x + canvas_w and
-                    canvas_y <= mouse_y <= canvas_y + canvas_h):
-                return on_mousewheel(event)
-
-        self.root.bind_all("<MouseWheel>", on_global_mousewheel)
-        self.root.bind_all("<Button-4>", on_global_mousewheel)
-        self.root.bind_all("<Button-5>", on_global_mousewheel)
-
-    def toggle_console(self):
-        """Nur die Konsole ein-/ausblenden, Results bleibt"""
-        if self.console_visible:
-            self.console_pane.forget(self.console_frame)
-            self.console_visible = False
-        else:
-            self.console_pane.add(self.console_frame, weight=1)
+    def toggle_console(self, checked):
+        """Konsole ein-/ausblenden mit Animation"""
+        if checked:
+            self.splitter.widget(1).show()
             self.console_visible = True
+            self.toggle_btn.setChecked(True)
+        else:
+            self.splitter.widget(1).hide()
+            self.console_visible = False
+            self.toggle_btn.setChecked(False)
 
-    def add_result(self, title, body, treffer_typ):
+    def set_search_loading(self, is_loading: bool):
+        """Loading-Status anzeigen/verstecken"""
+        if is_loading:
+            self.search_label.setText("🔄 Suche läuft...")
+            self.search_label.setVisible(True)
+            self.progress_bar.setValue(0)
+        else:
+            self.search_label.setVisible(False)
+
+    def add_result(self, title, body, treffer_typ, rel_pfad):
+        """Ergebnis als moderne Karte hinzufügen"""
+
         def _add():
-            snipped = ttk.Frame(self.scrollable_frame, padding=10)
-            snipped.pack(fill="x", pady=6)
+            # Verstecke Empty State beim ersten Ergebnis
+            if self.result_count == 0:
+                self.empty_state_label.setVisible(False)
 
-            emoji = "📁" if treffer_typ == "filename" else "🔍"
-            title_label = ttk.Label(snipped, text=f"{emoji} {title}",
-                                   wraplength=650, font=("", 14, "bold"),
-                                   bootstyle="info", anchor="w", justify="left")
-            title_label.pack(fill="x", anchor="w")
-            title_label.visited = False
+            card = SearchResultCard(title, body, treffer_typ, rel_pfad)
+            card.clicked.connect(lambda path: self.open_file(path))
+            self.results_layout.addWidget(card)
+            self.result_count += 1
 
-            body_label = ttk.Label(snipped, text=body, wraplength=650,
-                                  anchor="w", justify="left")
-            body_label.pack(fill="x", pady=(4, 0))
+        # Thread-sichere Ausführung
+        if threading.current_thread() is threading.main_thread():
+            _add()
+        else:
+            QTimer.singleShot(0, _add)
 
-            def on_enter(e):
-                title_label.configure(font=("", 14, "bold underline"))
+    def open_file(self, path):
+        import subprocess
+        import platform
+        from pathlib import Path
+        import unicodedata
+        import os
 
-            def on_leave(e):
-                if title_label.visited:
-                    title_label.configure(font=("", 14, "bold"))
-                else:
-                    title_label.configure(bootstyle="info", font=("", 14, "bold"))
+        print(path)
+        # Normalisierung direkt auf den Eingabe-String
+        normalized_path = unicodedata.normalize('NFD', path)
 
-            def on_click(e):
-                title_label.visited = True
-                title_label.configure(bootstyle="danger", font=("", 14, "bold"))
+        # Dann absoluten Pfad bauen
+        abs_path = Path(normalized_path).expanduser().resolve()
 
-            title_label.bind("<Enter>", on_enter)
-            title_label.bind("<Leave>", on_leave)
-            title_label.bind("<Button-1>", on_click)
-            title_label.configure(cursor="hand2")
+        if not abs_path.is_file():
+            print(f"❌ Datei existiert nicht: {abs_path}")
+            return
 
-            for e in [snipped, body_label]:
-                e.bind("<Enter>", lambda e: e.widget.configure(cursor="hand2"))
-                e.bind("<Leave>", lambda e: e.widget.configure(cursor=""))
+        try:
+            if platform.system() == "Darwin":
+                subprocess.run(["open", str(abs_path)])
+            elif platform.system() == "Windows":
+                os.startfile(str(abs_path))
+            else:
+                subprocess.run(["xdg-open", str(abs_path)])
 
-        self.root.after(0, _add)
+            print(f"✅ Öffne Datei: {abs_path}")
+        except Exception as e:
+            print(f"❌ Fehler beim Öffnen: {e}")
 
     def clear_results(self):
+        """Alle Ergebnisse löschen"""
+
         def _clear():
-            for w in self.scrollable_frame.winfo_children():
-                w.destroy()
-        self.root.after(0, _clear)
+            # Lösche alle außer dem Empty State Label
+            for i in reversed(range(self.results_layout.count())):
+                widget = self.results_layout.itemAt(i).widget()
+                if widget and widget != self.empty_state_label:
+                    widget.deleteLater()
+
+            # Zeige Empty State wieder
+            self.empty_state_label.setVisible(True)
+            self.result_count = 0
+
+        if threading.current_thread() is threading.main_thread():
+            _clear()
+        else:
+            QTimer.singleShot(0, _clear)
 
     def show_status(self, message, typ="info"):
-        def _show():
-            if hasattr(self, 'status_label'):
-                self.status_label.configure(text=message, bootstyle=typ)
-        self.root.after(0, _show)
+        """Status anzeigen (angepasst für PySide)"""
+        status_text = f"[{typ.upper()}] {message}"
+        print(status_text)
 
-    def _on_btn_enter(self, e):
-        self.btn.configure(bootstyle="light")
+        # Optional: Zeige Status in der Konsole an
+        if typ == "error":
+            self.search_label.setText(f"❌ {message}")
+            self.search_label.setVisible(True)
+            # Auto-hide nach 5 Sekunden
+            QTimer.singleShot(5000, lambda: self.search_label.setVisible(False))
 
-    def _on_btn_leave(self, e):
-        self.btn.configure(bootstyle="secondary")
+    def set_progress(self, value):
+        """Fortschrittsbalken aktualisieren"""
+        self.progress_bar.setValue(int(value))
+
+    def update_path_label(self, path):
+        """Pfad-Label aktualisieren mit gekürzte Anzeige bei langen Pfaden"""
+        if len(path) > 70:
+            # Zeige nur Anfang und Ende bei sehr langen Pfaden
+            display_path = path[:35] + ".../" + Path(path).name
+        else:
+            display_path = path
+
+        self.pfad_label.setText(f"📂 {display_path}")
+        self.pfad_label.setToolTip(path)  # Full Path im Tooltip
+
+
+# Für die Integration mit dem existierenden Controller
+class PySideMainPage:
+    """Wrapper-Klasse für nahtlose Integration"""
+
+    def __init__(self, controller):
+        self.app = QApplication.instance()
+        if not self.app:
+            self.app = QApplication(sys.argv)
+
+        self.window = MainPage(controller)
+        self.window.show()
+
+    def run(self):
+        return self.app.exec()
+
+    def add_result(self, title, body, treffer_typ, rel_pfad):
+        self.window.add_result(title, body, treffer_typ, rel_pfad)
+
+    def clear_results(self):
+        self.window.clear_results()
+
+    def show_status(self, message, typ="info"):
+        self.window.show_status(message, typ)
+
+    def set_progress(self, value):
+        self.window.set_progress(value)
+
+    def update_path_label(self, path):
+        self.window.update_path_label(path)
+
+    def set_search_loading(self, is_loading: bool):
+        self.window.set_search_loading(is_loading)

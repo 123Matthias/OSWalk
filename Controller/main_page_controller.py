@@ -2,14 +2,17 @@ import os
 import threading
 import random
 import time
-from tkinter import filedialog
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import Pool, cpu_count, Manager
 import math
 
+from PySide6.QtCore import QObject, Signal, QTimer  # Qt Signals für Thread-Sicherheit
+from PySide6.QtWidgets import QFileDialog  # Qt FileDialog
+
 from Service.explorer_service import ExplorerService
 from Service.reader_service import ReaderService
+
 
 #####################################################################################################################
 # Statische Hilfsfunktionen für Multiprocessing in Python                                                           #
@@ -28,7 +31,7 @@ def process_chunk_static(dateien_chunk, keywords, threads_per_process, chunk_id,
 
         # Thread Executor
         with ThreadPoolExecutor(max_workers=threads_per_process) as executor:
-            futures = {} # dictionary
+            futures = {}  # dictionary
             for dateipfad in dateien_chunk:
                 future = executor.submit(
                     process_single_file_static,
@@ -44,13 +47,14 @@ def process_chunk_static(dateien_chunk, keywords, threads_per_process, chunk_id,
                 result = future.result()
                 if result:
                     treffer.append(result)
+                    progress_queue.put(('treffer', result))
 
                 verarbeitet_im_chunk += 1
-                # 🔥 Progress nur alle 5 Dateien (reduziert Queue-Last)
+                # Progress nur alle 5 Dateien (reduziert Queue-Last)
                 if verarbeitet_im_chunk % 5 == 0 or verarbeitet_im_chunk == chunk_size:
                     progress_queue.put(('progress', chunk_id, verarbeitet_im_chunk, chunk_size))
 
-        return treffer
+        return []
 
     except Exception as e:
         print(f"❌ KRITISCHER FEHLER in Prozess {chunk_id}: {e}")
@@ -98,9 +102,18 @@ def make_body_text_static(text, keyword, ctx=100):
     kontext = ' '.join(kontext.split())
     return kontext
 
+
 ######################################   CLASS   ###########################################################################################
-class MainPageController:
+class MainPageController(QObject):  # QObject für Signal-Support
+    # Signale für Thread-sichere UI-Updates - DIREKT und SOFORT!
+    add_result_signal = Signal(str, str, str, str)  # title, body, treffer_typ
+    clear_results_signal = Signal()
+    update_progress_signal = Signal(int)
+    update_path_signal = Signal(str)
+    show_status_signal = Signal(str, str)  # message, typ
+
     def __init__(self):
+        super().__init__()  # QObject Init aufrufen
         self.view = None
         self.reader_service = ReaderService()
         self.explorer_service = ExplorerService()
@@ -110,11 +123,8 @@ class MainPageController:
 
         self.all_files_cache = []
 
-        # Queue für UI-Updates
-        # Problem ist tkinter Gui Updates dürfen nicht aus Thread stammen (zumindest am Mac kommt sonst Fork fehler)
-        # Weiters ist das Beenden des threads mit threading.Event() also cancel_thread_event.set() nicht möglich
-        # tkinter immer am gui thread mit alles elementen separat behandeln!!!
-        self.ui_update_queue = deque()
+        # KEINE Queue mehr nötig! PySide6 Signals sind thread-sicher
+        # self.ui_update_queue = deque()  # 👈 WEG DAMIT!
 
         # Multiprocessing berechnen der Process Counts
         cpu_cores = cpu_count()
@@ -133,48 +143,31 @@ class MainPageController:
 
     def set_view(self, view):
         self.view = view
-        self.view.root.after(50, self._schedule_ui_updates) # alle 50ms UI Update
+        # Verbinde die Signale mit den View-Methoden
+        self.add_result_signal.connect(view.add_result)
+        self.clear_results_signal.connect(view.clear_results)
+        self.update_progress_signal.connect(view.set_progress)
+        self.update_path_signal.connect(view.update_path_label)
+        self.show_status_signal.connect(view.show_status)
 
-
-################################ GUI Thread Scheduler ########################################################################
-    # alle 50ms UI Update
-    # aus der Methode process_ui_queue kommen max 200 updates bis Pause das entlastet den UI Thread
-    def _schedule_ui_updates(self):
-        """Time Based and max update Value Scheduling for GUI Thread"""
-        if not self.view or not hasattr(self.view, 'root'):
-            return
-        try:
-            self._process_ui_queue()
-            self.view.root.after(50, self._schedule_ui_updates)
-        except Exception as e:
-            print(f"Fehler im Scheduler Method _schedule_ui_updates in controller: {e}")
-
-    def _process_ui_queue(self):
-        processed = 0
-        while self.ui_update_queue and processed < 200:
-            update_func = self.ui_update_queue.popleft()
-            try:
-                update_func()
-                processed += 1
-            except Exception as e:
-                print(f"Fehler bei UI-Update: {e}")
-                import traceback
-                traceback.print_exc()
-#########################################################################################################
-
-    def _queue_ui_update(self, update_func):
-        self.ui_update_queue.append(update_func)
+        # KEIN Timer mehr nötig! Signals werden sofort im Haupt-Thread verarbeitet
 
     def choose_path(self):
-        pfad = filedialog.askdirectory(initialdir=os.path.expanduser("~/home"))
+        """Qt FileDialog für PySide"""
+        pfad = QFileDialog.getExistingDirectory(
+            self.view,  # parent widget
+            "Verzeichnis auswählen",
+            os.path.expanduser("~")
+        )
+
         if pfad:
-            self.view.pfad_label.configure(text=pfad)
+            # DIREKTES Signal - sofortige Aktualisierung
+            self.update_path_signal.emit(pfad)
             self.view.basis_pfad = pfad
             self.all_files_cache = []
 
-
     def search(self, event=None):
-        keywords = self.view.keywords.get()
+        keywords = self.view.keywords.text()  # .text() statt .get() für Qt
 
         if not hasattr(self.view, "basis_pfad") or not self.view.basis_pfad:
             print("kein Pfad ausgewählt")
@@ -186,14 +179,15 @@ class MainPageController:
         if self.search_thread and self.search_thread.is_alive():
             print("Vorherige Suche läuft noch!")
             print("wird abgebrochen...")
-            self.cancel_thread_event.set() # beendet den thread hier nicht stellt nur Ampel auf Stop
+            self.cancel_thread_event.set()  # beendet den thread hier nicht stellt nur Ampel auf Stop
             self.search_thread.join(timeout=1)
 
         # Flag zum stoppen des search threads der alle anderen Prozesse und threads startet.
         self.cancel_thread_event = threading.Event()
 
-        self._queue_ui_update(lambda: self.view.clear_results()) # results löschen
-        self._queue_ui_update(lambda: self.view.progress_state.set(0)) # reset progress bar
+        # DIREKTE Signale - sofortige Aktualisierung
+        self.clear_results_signal.emit()  # results löschen
+        self.update_progress_signal.emit(0)  # reset progress bar
 
         # Hier wird der code im target dem Thread übergeben Runnable oder Future Code genannt
         self.search_thread = threading.Thread(
@@ -202,7 +196,7 @@ class MainPageController:
             name="search_thread" + time.strftime("%Y%m%d-%H%M%S"),
             daemon=True
         )
-        self.search_thread.start() # Startet den Thread erst
+        self.search_thread.start()  # Startet den Thread erst
         print(f"🔍 Suche nach '{keywords}' gestartet...")
 
     def _run_search_thread_multiprocessing(self, keywords, cancel_thread_event):
@@ -229,26 +223,25 @@ class MainPageController:
             print(f"Search Thread: {total_files} Dateien werden auf {self.num_processes} CPU Kernen bearbeitet...")
 
             # Dateinamen-Filter (superschnell)
-            treffer_set = set(self.explorer_service.filter_files_by_name(all_files, keywords)) # Set zerstört Dublikate hier sollten aber onehin keine sein
+            treffer_set = set(self.explorer_service.filter_files_by_name(all_files, keywords))  # Set zerstört Dublikate hier sollten aber onehin keine sein
             namen_treffer = len(treffer_set)
 
-            # Dateinamen-Treffer sofort anzeigen
+            # Dateinamen-Treffer SOFORT anzeigen - DIREKTES Signal!
             for dateipfad in treffer_set:
-                if cancel_thread_event.is_set(): # Wenn Stop kommt, dann soll Thread nicht weiter arbeiten
-                    print("abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in treffer_set ...")
+                if cancel_thread_event.is_set():  # Wenn Stop kommt, dann soll Thread nicht weiter arbeiten
+                    print(
+                        "abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in treffer_set ...")
                     return
                 dateiname = os.path.basename(dateipfad)
                 rel_pfad = os.path.relpath(dateipfad, self.view.basis_pfad)
-                self._queue_ui_update(
-                    lambda d=dateiname, r=rel_pfad:
-                    self._display_results([("filename", d, r, None, None)]) # Queue wird mit lamda func gefüllt das kann man auch direkt reinschreiben
-                )
+                # DIREKTES Signal - sofortige Anzeige!
+                self.add_result_signal.emit(dateiname, f"Fundort: {rel_pfad}", "filename", "")
 
             # Dateien für Content-Suche
             zu_pruefen = [f for f in all_files if f not in treffer_set]
 
             if not zu_pruefen:
-                self._queue_ui_update(lambda: self._update_progress(100)) # Fertig wenns nix gibt was noch zu prüfen ist also inhalt
+                self.update_progress_signal.emit(100)  # Fertig wenns nix gibt was noch zu prüfen ist also inhalt
                 return
 
             # Zufällig mischen für Lastverteilung für bessere Aufteilung der Datenmengen auf Processes
@@ -281,8 +274,8 @@ class MainPageController:
                 inhalt_treffer = 0
                 letzter_progress = -1
 
-                # Schnellere Queue-Verarbeitung
-                while any(not r.ready() for r in results):
+                # Schnellere Queue-Verarbeitung Result ist eine async ops deshalb müssen wir auf ready warten
+                while any(not r.ready() for r in results) or not progress_queue.empty():
                     if cancel_thread_event.is_set():
                         print("❌ ABBRUCH - Alle Prozesse werden beendet!")
                         pool.terminate()
@@ -300,24 +293,24 @@ class MainPageController:
                             progress = int(total_verarbeitet / total_files * 100)
 
                             if progress != letzter_progress:
-                                self._queue_ui_update(lambda p=progress: self._update_progress(p))
+                                # DIREKTES Signal - sofortige Progress-Anzeige!
+                                self.update_progress_signal.emit(progress)
                                 letzter_progress = progress
 
+                        elif msg[0] == 'treffer':
+                            # 🔥 TREFFER-UPDATE: Hier werden Treffer aus der Queue geholt!
+                            treffer = msg[1]  # Auspacken des Tuples: ('treffer', result)
+                            typ, dateiname, rel_pfad, keyword, kontext = treffer
+
+                            # Formatiere und sende an GUI!
+                            text = f"'{keyword}' gefunden\n...{kontext}..."
+                            self.add_result_signal.emit(dateiname, text, "content", rel_pfad)  # ✨ AN DIE GUI!
+
                     except:
-                       pass
+                        pass
 
-                # Ergebnisse einsammeln
-                for result in results:
-                    chunk_treffer = result.get()
-                    for treffer in chunk_treffer:
-                        typ, dateiname, rel_pfad, keyword, kontext = treffer
-                        self._queue_ui_update(
-                            lambda d=dateiname, r=rel_pfad, k=keyword, ctx=kontext:
-                            self._display_results([(typ, d, r, k, ctx)])
-                        )
-                        inhalt_treffer += 1
 
-                self._queue_ui_update(lambda: self._update_progress(100))
+                self.update_progress_signal.emit(100)
                 print(f"✅ FERTIG: {namen_treffer} Dateinamen, {inhalt_treffer} Inhalts-Treffer")
 
         except Exception as e:
@@ -325,36 +318,13 @@ class MainPageController:
             import traceback
             traceback.print_exc()
 
-
-
-
-
-    # Restliche Methoden für result update etc.
-    def _display_results(self, results):
-        if not self.view:
-            return
-        for typ, dateiname, rel_pfad, keyword, kontext in results:
-            if typ == "filename":
-                self.view.add_result(dateiname, f"Fundort: {rel_pfad}", "filename")
-            else:
-                text = f"'{keyword}' in {rel_pfad}\n...{kontext}..." if kontext else f"Treffer in {rel_pfad}"
-                self.view.add_result(dateiname, text, "content")
-
-    def _update_progress(self, value):
-        if self.view:
-            try:
-                self.view.progress_state.set(value)
-                self.view.root.update_idletasks()
-            except:
-                pass
-
     def cancel_search(self):
         self.cancel_thread_event.set()
         print("Suche wird abgebrochen...")
 
     def reset_progress_bar(self):
         if self.view:
-            self._queue_ui_update(lambda: self.view.progress_state.set(0))
+            self.update_progress_signal.emit(0)
 
     def clear_cache(self):
         self.all_files_cache = []
