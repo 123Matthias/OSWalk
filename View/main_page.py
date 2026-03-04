@@ -319,13 +319,15 @@ class MainPage(QMainWindow):
 
         # Fortschrittsleiste
         self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimumHeight(8)
+        self.progress_bar.setMinimumHeight(3)
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
-                background-color: #2c2c2c;
-                border: none;
+                background-color: #2e2e2e;
+                border: 1px solid #2c2c2c;
                 border-radius: 4px;
+                height: 5px;
+                max-height: 5px;
             }
             QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
