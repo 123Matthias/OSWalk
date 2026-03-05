@@ -15,69 +15,46 @@ from Service.explorer_service import ExplorerService
 
 from View.gui_console import GUIConsole
 
-from Service.font_awesome_service import FontAwesomeService
-
 
 class AnimatedToggle(QPushButton):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCheckable(True)
         self.setFixedSize(40, 40)
-        self._color = QColor("#00bc8c")
 
-
-        self.setStyleSheet(f"""
-            QPushButton {{
+        # Basis-Styling (ohne Farb-Animation)
+        self.setStyleSheet("""
+            QPushButton {
                 background-color: #2c2c2c;
                 border: 2px solid #3c3c3c;
                 border-radius: 20px;
-                font-family: "Font Awesome 7";  /* ← Echter Font-Name */
+                font-family: "Font Awesome 7 Free", "Font Awesome 6 Free", "FontAwesome", "Arial";
                 font-size: 16px;
                 color: white;
                 font-weight: bold;
-            }}
-            QPushButton:hover {{
+            }
+            QPushButton:hover {
                 background-color: #3c3c3c;
                 border: 2px solid #00bc8c;
-            }}
-            QPushButton:pressed {{
+            }
+            QPushButton:pressed {
                 background-color: #1c1c1c;
-            }}
+            }
+            QPushButton:checked {
+                background-color: #f39c12;  /* Orange wenn aktiv */
+                border: 2px solid #f39c12;
+            }
+            QPushButton:checked:hover {
+                background-color: #e67e22;
+                border: 2px solid #e67e22;
+            }
         """)
 
-        # ... rest gleich ...
+        # Start-Icon: Terminal öffnen ()
+        self.setText("\uf120")
 
-    def get_color(self):
-        return self._color
 
-    def set_color(self, color):
-        self._color = color
-        self.update()
 
-    color = Property(QColor, get_color, set_color)
-
-    def _on_toggled(self, checked):
-        self._animation.stop()
-        self._animation.setStartValue(self._color)
-        self._animation.setEndValue(
-            QColor("#f39c12") if checked else QColor("#00bc8c")
-        )
-        self._animation.start()
-
-        # Icon wechseln
-        self.setText("\uf410" if checked else "\uf120")
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Animierten Hintergrund
-        painter.setBrush(QBrush(self._color))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(4, 4, 32, 32)
-
-        painter.end()
-        super().paintEvent(event)  # Lässt das Icon vom Stylesheet zeichnen
 
 
 class SearchResultCard(QFrame):
@@ -210,8 +187,8 @@ class MainPage(QMainWindow):
 
     def focus_search(self):
         """Focus auf das Suchfeld"""
-        self.keywords.setFocus()
-        self.keywords.selectAll()
+        self.keywords_input.setFocus()
+        self.keywords_input.selectAll()
 
     def toggle_console_shortcut(self):
         """Konsole via Shortcut umschalten"""
@@ -222,8 +199,6 @@ class MainPage(QMainWindow):
 
         """Moderner Header mit Suchfeld"""
 
-        service = FontAwesomeService()
-        font = service.load_font()
         header_widget = QWidget()
         header_layout = QHBoxLayout(header_widget)
         header_layout.setSpacing(10)
@@ -254,25 +229,43 @@ class MainPage(QMainWindow):
 
         header_layout.addWidget(title_widget)
 
-        # Modernes Suchfeld
-        self.keywords = QLineEdit()
-        self.keywords.setPlaceholderText("🔍 Suchbegriffe eingeben... (Enter drücken | Ctrl+L)")
-        self.keywords.setMinimumHeight(40)
-        self.keywords.setStyleSheet("""
-            QLineEdit {
-                background-color: #2c2c2c;
-                border: 2px solid #3c3c3c;
-                border-radius: 20px;
-                padding: 8px 20px;
-                font-size: 14px;
-                color: white;
-            }
-            QLineEdit:focus {
-                border: 2px solid #00bc8c;
-            }
+
+        #Lupe
+        self.search_label = QLabel("\uf002")
+        self.search_label.setFixedSize(30, 30)  # Breite/Höhe fix
+        self.search_label.setAlignment(Qt.AlignCenter)
+        self.search_label.setStyleSheet("""
+        QLabel {
+            font-family: Font Awesome 7 Free;
+            font-size: 20px;
+        }
+
         """)
-        self.keywords.returnPressed.connect(self.controller.search)
-        header_layout.addWidget(self.keywords)
+
+        header_layout.addWidget(self.search_label)
+
+        # Modernes Suchfeld
+        self.keywords_input = QLineEdit()
+        self.keywords_input.setPlaceholderText("press enter")
+        self.keywords_input.setMinimumHeight(40)
+
+        self.keywords_input.setStyleSheet("""
+        QLineEdit {
+            background-color: #2c2c2c;
+            border: 2px solid #3c3c3c;
+            border-radius: 20px;
+            padding: auto 8px;
+            font-size: 16px;
+            color: white;
+            font-family: Helvetica, Arial, sans-serif;
+        }
+  
+        QLineEdit:focus {
+            border: 2px solid #00bc8c;
+        }
+        """)
+        self.keywords_input.returnPressed.connect(self.controller.search)
+        header_layout.addWidget(self.keywords_input)
 
         # Choose Path Button mit Icon
         self.btn = QPushButton()

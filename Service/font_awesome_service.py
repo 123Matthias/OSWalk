@@ -5,7 +5,8 @@ import sys
 
 class FontAwesomeService:
 
-    def load_font(self):
+    @staticmethod
+    def load_font():
         # Absoluter Pfad von dieser Datei aus
         file_dir = os.path.dirname(os.path.abspath(__file__))
         font_path = os.path.join(file_dir, "../assets/fa-7-Free-Solid-900.otf")

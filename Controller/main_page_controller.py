@@ -167,7 +167,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
             self.all_files_cache = []
 
     def search(self, event=None):
-        keywords = self.view.keywords.text()  # .text() statt .get() für Qt
+        keywords = self.view.keywords_input.text()  # .text() statt .get() für Qt
 
         if not hasattr(self.view, "basis_pfad") or not self.view.basis_pfad:
             print("kein Pfad ausgewählt")
