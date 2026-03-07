@@ -1,17 +1,20 @@
 import os
 import sys
 import threading
+from curses.ascii import controlnames
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QProgressBar, QScrollArea,
-    QFrame, QSplitter, QSizePolicy
+    QFrame, QSplitter, QSizePolicy, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject, QTimer, Property
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QPainter, QBrush, QLinearGradient, QKeySequence, QShortcut, \
     QPixmap
 from PySide6.QtWidgets import QApplication
+
+from Controller.main_page_controller import MainPageController
 from Service.explorer_service import ExplorerService
 
 from View.gui_console import GUIConsole
@@ -56,23 +59,26 @@ class AnimatedToggle(QPushButton):
 
 
 class SearchResultCard(QFrame):
-    """Moderne Karte für Suchergebnisse mit verbessertem Feedback"""
-
     clicked = Signal(str)  # Signal mit dem Pfad
 
-    def mousePressEvent(self, event):
-        # Wenn Card geklickt wird, emittet sie den Pfad!
-        self.clicked.emit(self.rel_path)
-        super().mousePressEvent(event)
+    def highlight_words(self, text: str) -> str:
+        import re
+        clean_text = text  # Originaltext behalten, nur markieren
+        for kw in ExplorerService.Keyword_List:
+            # Regex: match unabhängig von Groß-/Kleinschreibung
+            # re.escape, falls Sonderzeichen im Keyword sind
+            pattern = re.compile(re.escape(kw), re.IGNORECASE)
+            clean_text = pattern.sub(lambda m: f'<span style="color: #ffcb6b; font-weight: bold">{m.group(0)}</span>', clean_text)
 
-    def __init__(self, title, body, treffer_typ, rel_path, parent=None):
+        return clean_text
+
+    def __init__(self, priority, title, body, treffer_typ, rel_path, parent=None):
         super().__init__(parent)
         self.setObjectName("resultCard")
         self.setFrameStyle(QFrame.NoFrame)
         self.setCursor(Qt.PointingHandCursor)
-        self._is_pressed = False
         self.rel_path = rel_path
-
+        self.priority = priority
 
         self.setStyleSheet("""
             #resultCard {
@@ -85,17 +91,17 @@ class SearchResultCard(QFrame):
             }
             #resultCard:hover {
                 border-left: 3px solid #00bc8c;
-                
             }
         """)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        # Icon und Titel
+        # Titel
         title_layout = QHBoxLayout()
-
-        self.title_label = QLabel(title)
+        self.title_label = QLabel()
+        self.title_label.setTextFormat(Qt.RichText)
+        self.title_label.setText(self.highlight_words(title))
         self.title_label.setStyleSheet("""
             font-size: 16px;
             font-weight: bold;
@@ -105,9 +111,8 @@ class SearchResultCard(QFrame):
         title_layout.addWidget(self.title_label)
         title_layout.addStretch()
 
-        # Typ-Badge
         badge = QLabel(treffer_typ.upper())
-        badge.setStyleSheet(f"""
+        badge.setStyleSheet("""
             background-color: none;
             color: white;
             padding: 2px 8px;
@@ -116,24 +121,29 @@ class SearchResultCard(QFrame):
             font-weight: bold;
         """)
         title_layout.addWidget(badge)
-
         layout.addLayout(title_layout)
 
-        # Body mit schönerer Darstellung
-        body_label = QLabel(body)
-        body_label.setWordWrap(True)
-        body_label.setStyleSheet("""
+        # Body
+        self.body_label = QLabel()
+        self.body_label.setWordWrap(True)
+        self.body_label.setTextFormat(Qt.RichText)
+        self.body_label.setText(self.highlight_words(body))
+        self.body_label.setStyleSheet("""
             color: #b0b0b0;
             font-size: 13px;
             padding: 4px 0px;
             background-color: none;
         """)
-        body_label.setTextFormat(Qt.PlainText)
-        layout.addWidget(body_label)
+        layout.addWidget(self.body_label)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self.rel_path)
+        super().mousePressEvent(event)
 
 
 
 class MainPage(QMainWindow):
+
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
@@ -143,7 +153,7 @@ class MainPage(QMainWindow):
         self.explorer_service = ExplorerService()
 
         # Fenster-Setup
-        self.setWindowTitle("PyFinder")
+        self.setWindowTitle("")
         self.setMinimumSize(1000, 700)
 
         # Zentrales Widget und Hauptlayout
@@ -205,22 +215,26 @@ class MainPage(QMainWindow):
         title_layout.setSpacing(2)
         title_layout.setContentsMargins(0, 0, 0, 0)
 
+
         key_label = QLabel("Key")
         key_label.setStyleSheet("""
             font-size: 36px;
             font-weight: bold;
             color: #00bc8c;
+            margin: 0;
+            padding: 0;
         """)
-
         s_label = QLabel()
-        s_label.setPixmap(QPixmap("assets/Python.png").scaled(
-            36, 36,  # Größe anpassen (gleiche Höhe wie die Schrift)
-            Qt.KeepAspectRatio,  # Seitenverhältnis beibehalten
-            Qt.SmoothTransformation  # Glatte Skalierung
+        s_label.setPixmap(QPixmap("assets/img/pythonFett.png").scaled(
+            36, 36,
+            Qt.KeepAspectRatio,
+            Qt.SmoothTransformation
         ))
         s_label.setStyleSheet("""
             width: 36px;
             height: 36px;
+            margin: 0; 
+            padding: 0;
         """)
 
         eek_label = QLabel("eek")
@@ -228,6 +242,8 @@ class MainPage(QMainWindow):
             font-size: 36px;
             font-weight: bold;
             color: #f39c12;
+            margin: 0;
+            padding: 0;
         """)
 
         title_layout.addWidget(key_label)
@@ -535,25 +551,46 @@ class MainPage(QMainWindow):
         else:
             self.search_label.setVisible(False)
 
-    def add_result(self, title, body, treffer_typ, abs_path):
+    def add_result(self, priority, title, body, treffer_typ, abs_path):
         """Ergebnis als moderne Karte hinzufügen"""
 
         def _add():
             # Verstecke Empty State beim ersten Ergebnis
             if self.result_count == 0:
                 self.empty_state_label.setVisible(False)
-            print(f"DEBUG PATH: {abs_path}")
             # Ausgabe: DEBUG PATH: Linser/datei.pdf
-            card = SearchResultCard(title, body, treffer_typ, abs_path)
+            card = SearchResultCard(priority, title, body, treffer_typ, abs_path)
             card.clicked.connect(lambda path=abs_path: self.open_file(path))
             self.results_layout.addWidget(card)
             self.result_count += 1
+
 
         # Thread-sichere Ausführung
         if threading.current_thread() is threading.main_thread():
             _add()
         else:
             QTimer.singleShot(0, _add)
+
+    def sort_results(self):
+        # 1. Sammle alle Karten außer empty_state_label
+        cards = []
+        for i in range(self.results_layout.count()):
+            widget = self.results_layout.itemAt(i).widget()
+            if widget and widget != self.empty_state_label:
+                cards.append(widget)
+
+        # 2. Sortiere nach priority absteigend
+        cards.sort(key=lambda c: getattr(c, 'priority', 0), reverse=True)
+
+        # 3. Layout leeren (außer empty_state_label)
+        for i in reversed(range(self.results_layout.count())):
+            widget = self.results_layout.itemAt(i).widget()
+            if widget and widget != self.empty_state_label:
+                self.results_layout.removeWidget(widget)
+
+        # 4. Sortierte Widgets wieder hinzufügen
+        for card in cards:
+            self.results_layout.addWidget(card)
 
     def open_file(self, path):
         import subprocess

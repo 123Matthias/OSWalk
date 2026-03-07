@@ -65,28 +65,35 @@ def process_single_file_static(dateipfad, keyword_list, reader, basis_pfad):
     """Schnellere Textsuche"""
     try:
         # 🔥 max_chars erhöht für bessere Trefferquote
-        text = reader.extract_text(dateipfad, max_chars=5000)
+        text = reader.extract_text(dateipfad, max_chars=700)
         if not text:
             return None
 
         # 🔥 Einmal lower() für alle Keywords
         text_lower = text.lower()
-
+        found = False
+        priority = 0
+        dateiname = None
+        keyword_return = None
+        kontext = None
         # 🔥 Keyword-Check in einem Durchgang
-        for keyword in keyword_list:
+        for i, keyword in enumerate(keyword_list, start=1):
             if keyword in text_lower:
-                # Nur Kontext erstellen wenn nötig
-                kontext = make_body_text_static(text, keyword, ctx=150)
-                dateiname = os.path.basename(dateipfad)
-                return ("content", dateiname, dateipfad, keyword, kontext)
+                found = True
+                priority += i
+                if priority == 1: # Kontext wird aus erstem treffer erzeugt.
+                    kontext = make_body_text_static(text, keyword, ctx=200)
+                    dateiname = os.path.basename(dateipfad)
+                    keyword_return = keyword
+        if found:
+            return priority, "content", dateiname, dateipfad, keyword_return, kontext
 
     except Exception as e:
-
         print(f"❌ FEHLER in main_page_controller in Method process_single_file_static {e}")
     return None
 
 
-def make_body_text_static(text, keyword, ctx=100):
+def make_body_text_static(text, keyword, ctx=300):
     """Keine Instance Methoden für Multiprocessing in Python (Ansonsten Pickling fehler) """
     if not text or not keyword:
         return None
@@ -106,11 +113,12 @@ def make_body_text_static(text, keyword, ctx=100):
 ######################################   CLASS   ###########################################################################################
 class MainPageController(QObject):  # QObject für Signal-Support
     # Signale für Thread-sichere UI-Updates - DIREKT und SOFORT!
-    add_result_signal = Signal(str, str, str, str)  # title, body, treffer_typ
+    add_result_signal = Signal(int, str, str, str, str)  # priority, title, body, treffer_typ, abs_path
     clear_results_signal = Signal()
     update_progress_signal = Signal(int)
     update_path_signal = Signal(str)
     show_status_signal = Signal(str, str)  # message, typ
+    search_finished_signal = Signal(bool)
 
     def __init__(self):
         super().__init__()  # QObject Init aufrufen
@@ -120,7 +128,6 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.cancel_thread_event = threading.Event()
         self.search_thread = None
         self.search_recursive = True
-
         self.all_files_cache = []
 
         # KEINE Queue mehr nötig! PySide6 Signals sind thread-sicher
@@ -149,6 +156,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.update_progress_signal.connect(view.set_progress)
         self.update_path_signal.connect(view.update_path_label)
         self.show_status_signal.connect(view.show_status)
+        self.search_finished_signal.connect(view.sort_results)
 
         # KEIN Timer mehr nötig! Signals werden sofort im Haupt-Thread verarbeitet
 
@@ -227,15 +235,16 @@ class MainPageController(QObject):  # QObject für Signal-Support
             namen_treffer = len(treffer_set)
 
             # Dateinamen-Treffer SOFORT anzeigen - DIREKTES Signal!
-            for dateipfad in treffer_set:
+            for treffer in treffer_set:
                 if cancel_thread_event.is_set():  # Wenn Stop kommt, dann soll Thread nicht weiter arbeiten
                     print(
                         "abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in treffer_set ...")
                     return
+                dateipfad = os.path.basename(treffer[1])
                 dateiname = os.path.basename(dateipfad)
                 rel_pfad = os.path.relpath(dateipfad, self.view.basis_pfad)
                 # DIREKTES Signal - sofortige Anzeige!
-                self.add_result_signal.emit(dateiname, f"Fundort: {rel_pfad}", "filename", dateipfad)
+                self.add_result_signal.emit(treffer[0], dateiname, f"Fundort: {rel_pfad}", "filename", dateipfad)
 
             # Dateien für Content-Suche
             zu_pruefen = [f for f in all_files if f not in treffer_set]
@@ -300,11 +309,11 @@ class MainPageController(QObject):  # QObject für Signal-Support
                         elif msg[0] == 'treffer':
                             # 🔥 TREFFER-UPDATE: Hier werden Treffer aus der Queue geholt!
                             treffer = msg[1]  # Auspacken des Tuples: ('treffer', result)
-                            typ, dateiname, abs_pfad, keyword, kontext = treffer
+                            priority, typ, dateiname, abs_pfad, keyword, kontext = treffer
 
                             # Formatiere und sende an GUI!
-                            text = f"'{keyword}' gefunden\n...{kontext}..."
-                            self.add_result_signal.emit(dateiname, text, "content", abs_pfad)  # ✨ AN DIE GUI!
+                            text = f"'...{kontext}..."
+                            self.add_result_signal.emit(priority, dateiname, text, "content", abs_pfad)  # ✨ AN DIE GUI!
 
                     except:
                         pass
@@ -312,11 +321,14 @@ class MainPageController(QObject):  # QObject für Signal-Support
 
                 self.update_progress_signal.emit(100)
                 print(f"✅ FERTIG: {namen_treffer} Dateinamen, {inhalt_treffer} Inhalts-Treffer")
+                self.search_finished_signal.emit(True)
 
         except Exception as e:
             print(f"❌ Fehler: {e}")
             import traceback
             traceback.print_exc()
+
+
 
     def cancel_search(self):
         self.cancel_thread_event.set()

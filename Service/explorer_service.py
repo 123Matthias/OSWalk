@@ -6,6 +6,10 @@ from typing import List, Tuple, Optional, Generator
 
 
 class ExplorerService:
+
+    Keyword_List:List[str] = []
+    Max_Priority: int = 0
+
     def __init__(self):
         pass
 
@@ -48,32 +52,38 @@ class ExplorerService:
             count += 1
         return all_files, count
 
-    def filter_files_by_name(self, filepaths: List[str], keywords: Optional[str] = None) -> List[str]:
+    def filter_files_by_name(self, filepaths: List[str], keywords: Optional[str] = None) -> List[Tuple[int, str]]:
         """
         Filtert eine Liste von Dateipfaden nach Keywords im Dateinamen.
+        Gibt pro Datei ein Tuple zurück: (priority, max_priority, filepath)
         """
         if not keywords:
-            return filepaths.copy()
+            return [(0, filepath) for filepath in filepaths]
 
         # Keywords aufbereiten
         cleaned = keywords.replace(',', ' ')
         keyword_list = [k.strip().lower() for k in cleaned.split() if k.strip()]
 
         if not keyword_list:
-            return filepaths.copy()
+            return [(0,filepath) for filepath in filepaths]
 
+        ExplorerService.Keyword_List = keyword_list
         filtered_files = []
+        ExplorerService.Max_Priority = sum(i + 1 for i in range(len(keyword_list)))  # z.B. 5 Keywords → 15
 
         for filepath in filepaths:
+            priority = 0  # Reset pro Datei
             filename = os.path.basename(filepath)
             file_lower = filename.lower()
             file_normalized = unicodedata.normalize('NFC', file_lower)
 
-            for keyword in keyword_list:
+            for i, keyword in enumerate(keyword_list, start=1):
                 keyword_normalized = unicodedata.normalize('NFC', keyword.lower())
                 if keyword_normalized in file_normalized:
-                    filtered_files.append(filepath)
-                    break
+                    priority += i  # Summe aller Treffer
+
+            if priority > 0:  # Nur Dateien mit mindestens einem Treffer
+                filtered_files.append((priority, filepath))  # Ein Tuple pro Datei
 
         return filtered_files
 
