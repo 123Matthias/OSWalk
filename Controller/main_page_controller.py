@@ -74,19 +74,19 @@ def process_single_file_static(dateipfad, keyword_list, reader, basis_pfad):
         found = False
         priority = 0
         dateiname = None
-        keyword_return = None
         kontext = None
+        is_text_generated = False
         # 🔥 Keyword-Check in einem Durchgang
         for i, keyword in enumerate(keyword_list, start=1):
             if keyword in text_lower:
                 found = True
                 priority += i
-                if priority == 1: # Kontext wird aus erstem treffer erzeugt.
+                if not is_text_generated: # Kontext wird aus erstem treffer erzeugt.
                     kontext = make_body_text_static(text, keyword, ctx=200)
                     dateiname = os.path.basename(dateipfad)
-                    keyword_return = keyword
+                    is_text_generated = True
         if found:
-            return priority, "content", dateiname, dateipfad, keyword_return, kontext
+            return priority, "content", dateiname, dateipfad, kontext
 
     except Exception as e:
         print(f"❌ FEHLER in main_page_controller in Method process_single_file_static {e}")
@@ -157,6 +157,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.update_path_signal.connect(view.update_path_label)
         self.show_status_signal.connect(view.show_status)
         self.search_finished_signal.connect(view.sort_results)
+        self.search_finished_signal.connect(view.refresh_results_display)
 
         # KEIN Timer mehr nötig! Signals werden sofort im Haupt-Thread verarbeitet
 
@@ -240,11 +241,11 @@ class MainPageController(QObject):  # QObject für Signal-Support
                     print(
                         "abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in treffer_set ...")
                     return
-                dateipfad = os.path.basename(treffer[1])
-                dateiname = os.path.basename(dateipfad)
-                rel_pfad = os.path.relpath(dateipfad, self.view.basis_pfad)
+                abs_pfad = os.path.abspath(treffer[1])
+                dateiname = os.path.basename(treffer[1])
+                rel_pfad = os.path.relpath(abs_pfad, self.view.basis_pfad)
                 # DIREKTES Signal - sofortige Anzeige!
-                self.add_result_signal.emit(treffer[0], dateiname, f"Fundort: {rel_pfad}", "filename", dateipfad)
+                self.add_result_signal.emit(treffer[0], dateiname, f"Fundort: {rel_pfad}", "filename", abs_pfad)
 
             # Dateien für Content-Suche
             zu_pruefen = [f for f in all_files if f not in treffer_set]
@@ -309,7 +310,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
                         elif msg[0] == 'treffer':
                             # 🔥 TREFFER-UPDATE: Hier werden Treffer aus der Queue geholt!
                             treffer = msg[1]  # Auspacken des Tuples: ('treffer', result)
-                            priority, typ, dateiname, abs_pfad, keyword, kontext = treffer
+                            priority, typ, dateiname, abs_pfad, kontext = treffer
 
                             # Formatiere und sende an GUI!
                             text = f"'...{kontext}..."

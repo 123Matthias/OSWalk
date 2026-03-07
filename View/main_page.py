@@ -68,7 +68,7 @@ class SearchResultCard(QFrame):
             # Regex: match unabhängig von Groß-/Kleinschreibung
             # re.escape, falls Sonderzeichen im Keyword sind
             pattern = re.compile(re.escape(kw), re.IGNORECASE)
-            clean_text = pattern.sub(lambda m: f'<span style="color: #ffcb6b; font-weight: bold">{m.group(0)}</span>', clean_text)
+            clean_text = pattern.sub(lambda m: f'<span style="font-weight: bold">{m.group(0)}</span>', clean_text)
 
         return clean_text
 
@@ -558,18 +558,32 @@ class MainPage(QMainWindow):
             # Verstecke Empty State beim ersten Ergebnis
             if self.result_count == 0:
                 self.empty_state_label.setVisible(False)
-            # Ausgabe: DEBUG PATH: Linser/datei.pdf
+
+            # Erstelle Card
             card = SearchResultCard(priority, title, body, treffer_typ, abs_path)
             card.clicked.connect(lambda path=abs_path: self.open_file(path))
+
+            # Einfach nur hinzufügen - fertig!
             self.results_layout.addWidget(card)
             self.result_count += 1
-
 
         # Thread-sichere Ausführung
         if threading.current_thread() is threading.main_thread():
             _add()
         else:
             QTimer.singleShot(0, _add)
+
+    def refresh_results_display(self):
+        """Erzwingt ein komplettes Neu-Rendern der Ergebnisse"""
+        # Einfach das Layout zwingen, sich zu aktualisieren
+        self.results_layout.activate()
+        self.results_container.updateGeometry()
+        self.results_container.repaint()
+        self.results_scroll.repaint()
+
+
+        # Optional: Kleines Debug
+        print(f"📊 Ergebnisse neu gerendert: {self.result_count} Karten")
 
     def sort_results(self):
         # 1. Sammle alle Karten außer empty_state_label

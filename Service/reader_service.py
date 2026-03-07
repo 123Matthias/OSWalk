@@ -12,7 +12,7 @@ class ReaderService:
         # Unterstützte Dateiformate (für schnelle Prüfung)
         self.supported_extensions = {
             # Dokumente
-            '.pdf', '.docx', '.doc', '.odt', '.rtf',
+            '.pdf', '.docx', '.doc', '.odt', '.rtf', 'PDF',
             # Tabellen
             '.xlsx', '.xls', '.csv',
             # Präsentationen
