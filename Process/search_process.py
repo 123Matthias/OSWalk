@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 class SearchProcess:
 
     @staticmethod
-    def process_chunk_static(dateien_chunk, keywords, search_depth, threads_per_process, chunk_id, basis_pfad, progress_queue):
+    def process_chunk_static(dateien_chunk, keywords, search_depth, threads_per_process, chunk_id, progress_queue):
         """OPTIMIERT: Mit besseren Werten für Threads"""
         try:
             from Service.reader_service import ReaderService
             reader = ReaderService()
             keyword_list = [k.strip().lower() for k in keywords.replace(',', ' ').split()]
-            treffer = []
+            matches = []
             chunk_size = len(dateien_chunk)
 
             # Thread Executor
@@ -30,7 +30,6 @@ class SearchProcess:
                         keyword_list,
                         reader,
                         search_depth,
-                        basis_pfad
                     )
                     futures[future] = dateipfad
 
@@ -38,8 +37,8 @@ class SearchProcess:
                 for future in as_completed(futures):
                     result = future.result()
                     if result:
-                        treffer.append(result)
-                        progress_queue.put(('treffer', result))
+                        matches.append(result)
+                        progress_queue.put(('match', result))
 
                     verarbeitet_im_chunk += 1
                     # Progress nur alle 5 Dateien (reduziert Queue-Last)
@@ -53,7 +52,7 @@ class SearchProcess:
             return []
 
     @staticmethod
-    def _process_single_file_static(dateipfad, keyword_list, reader, search_depth, basis_pfad):
+    def _process_single_file_static(dateipfad, keyword_list, reader, search_depth):
         """Schnellere Textsuche"""
         try:
             # 🔥 max_chars erhöht für bessere Trefferquote

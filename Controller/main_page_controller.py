@@ -33,6 +33,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.search_thread = None
         self.search_recursive = True
         self.all_files_cache = []
+        self.path_selected_ui = None
 
         # KEINE Queue mehr nötig! PySide6 Signals sind thread-sicher
         # self.ui_update_queue = deque()  # 👈 WEG DAMIT!
@@ -46,7 +47,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
     def _collect_files(self):
         """Hilfsmethode zum Sammeln der Dateien aus explorer_service.collect_file_info"""
         all_files, total = self.explorer_service.collect_file_info(
-            self.view.basis_pfad,
+            self.path_selected_ui,
             self.search_recursive,
             self.cancel_thread_event
         )
@@ -68,15 +69,17 @@ class MainPageController(QObject):  # QObject für Signal-Support
     def choose_path(self):
         """Qt FileDialog für PySide"""
         pfad = QFileDialog.getExistingDirectory(
-            self.view,  # parent widget
+            self.view,
             "Verzeichnis auswählen",
-            os.path.expanduser("~")
+            os.path.expanduser("~")  # 👈 Tilde wird zu C:/Users/name
         )
 
         if pfad:
-            # DIREKTES Signal - sofortige Aktualisierung
+            # Backslashes korrigieren
+            pfad = pfad.replace('\\', '/')
+
             self.update_path_signal.emit(pfad)
-            self.view.basis_pfad = pfad
+            self.path_selected_ui = pfad
             self.all_files_cache = []
 
     def search(self, event=None):
@@ -84,7 +87,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         search_depth = int(self.view.search_depth_input.text()) if self.view.search_depth_input.text().isdigit() else 1000 # default einfach 1000
         self.view.search_depth_input.setText(str(search_depth))
 
-        if not hasattr(self.view, "basis_pfad") or not self.view.basis_pfad:
+        if not self.path_selected_ui:
             print("kein Pfad ausgewählt")
             return
         if not keywords:
@@ -138,38 +141,38 @@ class MainPageController(QObject):  # QObject für Signal-Support
             print(f"Search Thread: {total_files} Dateien werden auf {self.num_processes} CPU Kernen bearbeitet...")
 
             # Dateinamen-Filter (superschnell)
-            treffer_set = set(self.explorer_service.filter_files_by_name(all_files, keywords))  # Set zerstört Dublikate hier sollten aber onehin keine sein
-            namen_treffer = len(treffer_set)
+            filepath_matches_set = set(self.explorer_service.filter_files_by_name(all_files, keywords))  # Set zerstört Dublikate hier sollten aber onehin keine sein
+            namen_treffer = len(filepath_matches_set)
 
             # Dateinamen-Treffer SOFORT anzeigen - DIREKTES Signal!
-            for treffer in treffer_set:
+            for match in filepath_matches_set:
                 if cancel_thread_event.is_set():  # Wenn Stop kommt, dann soll Thread nicht weiter arbeiten
                     print(
-                        "abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in treffer_set ...")
+                        "abbrechen " + threading.current_thread().name + "in for Schleife for dateipfad in filepath_matches_set ...")
                     return
-                abs_pfad = os.path.abspath(treffer[1])
-                dateiname = os.path.basename(treffer[1])
-                rel_pfad = os.path.relpath(abs_pfad, self.view.basis_pfad)
+                abs_path = os.path.abspath(match[1])
+                filename = os.path.basename(match[1])
+                rel_path = os.path.relpath(abs_path, self.path_selected_ui)
                 # DIREKTES Signal - sofortige Anzeige!
-                self.add_result_signal.emit(treffer[0], dateiname, f"Fundort: {rel_pfad}", "filename", abs_pfad)
+                self.add_result_signal.emit(match[0], filename, f"Fundort: {rel_path}", "filename", abs_path)
 
             # Dateien für Content-Suche
-            zu_pruefen = [f for f in all_files if f not in treffer_set]
+            files_content_search = [f for f in all_files if f not in filepath_matches_set]
 
-            if not zu_pruefen:
+            if not files_content_search:
                 self.update_progress_signal.emit(100)  # Fertig wenns nix gibt was noch zu prüfen ist also inhalt
                 return
 
             # Zufällig mischen für Lastverteilung für bessere Aufteilung der Datenmengen auf Processes
-            random.shuffle(zu_pruefen)
+            random.shuffle(files_content_search)
 
             # Chunk-Größe bestimmen. Ein Chunk ist die Menge an Files, die zu einem Prozess zugeordnet wird
-            chunk_size = math.ceil(len(zu_pruefen) / self.num_processes)
+            chunk_size = math.ceil(len(files_content_search) / self.num_processes)
 
             # 1. i = 0:  meine_liste[0 : 0+3] = meine_liste[0:3] → [0, 1, 2]
             # 2. i = 3:  meine_liste[3 : 3+3] = meine_liste[3:6] → [3, 4, 5]
             # 3. i = 6:  meine_liste[6 : 6+3] = meine_liste[6:9] → [6, 7, 8]
-            chunks = [zu_pruefen[i:i + chunk_size] for i in range(0, len(zu_pruefen), chunk_size)]
+            chunks = [files_content_search[i:i + chunk_size] for i in range(0, len(files_content_search), chunk_size)]
 
             # Shared Queue mit Manager prozessübergreifender Zugriff möglich
             manager = Manager()
@@ -182,7 +185,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
                 for i, chunk in enumerate(chunks):
                     result = pool.apply_async(
                         SearchProcess.process_chunk_static,
-                        (chunk, keywords, search_depth, self.threads_per_process, i, self.view.basis_pfad, progress_queue)
+                        (chunk, keywords, search_depth, self.threads_per_process, i, progress_queue)
                     )
                     results.append(result)
 
@@ -213,14 +216,14 @@ class MainPageController(QObject):  # QObject für Signal-Support
                                 self.update_progress_signal.emit(progress)
                                 letzter_progress = progress
 
-                        elif msg[0] == 'treffer':
+                        elif msg[0] == 'match':
                             # 🔥 TREFFER-UPDATE: Hier werden Treffer aus der Queue geholt!
-                            treffer = msg[1]  # Auspacken des Tuples: ('treffer', result)
-                            priority, typ, dateiname, abs_pfad, kontext = treffer
+                            match = msg[1]  # Auspacken des Tuples: ('match', result)
+                            priority, typ, filename, abs_path, kontext = match
 
                             # Formatiere und sende an GUI!
                             text = f"'...{kontext}..."
-                            self.add_result_signal.emit(priority, dateiname, text, "content", abs_pfad)  # ✨ AN DIE GUI!
+                            self.add_result_signal.emit(priority, filename, text, "content", abs_path)  # ✨ AN DIE GUI!
 
                     except:
                         pass

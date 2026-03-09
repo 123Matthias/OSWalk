@@ -646,15 +646,8 @@ class MainPage(QMainWindow):
         self.progress_bar.setValue(int(value))
 
     def update_path_label(self, path):
-        """Pfad-Label aktualisieren mit gekürzte Anzeige bei langen Pfaden"""
-        if len(path) > 70:
-            # Zeige nur Anfang und Ende bei sehr langen Pfaden
-            display_path = path[:35] + ".../" + Path(path).name
-        else:
-            display_path = path
-
+        display_path = path
         self.pfad_label.setText(f"📂 {display_path}")
-        self.pfad_label.setToolTip(path)  # Full Path im Tooltip
 
 
 

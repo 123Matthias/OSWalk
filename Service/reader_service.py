@@ -49,8 +49,10 @@ class ReaderService:
                 return None
 
             # Text mit textract extrahieren
+            print("DEBUG:" + filepath)
             text_bytes = textract.process(filepath)
             text = text_bytes.decode('utf-8', errors='ignore')
+            print(f"DEBUG: Dekodiert, {len(text)} Zeichen")
 
             # Text bereinigen (mehrere Leerzeichen, Zeilenumbrüche)
             text = ' '.join(text.split())
@@ -59,6 +61,7 @@ class ReaderService:
             if len(text) > max_chars:
                 text = text[:max_chars] + "..."
 
+            print(f"DEBUG: Erfolg! {len(text)} Zeichen zurückgegeben")
             return text
 
         except Exception as e:
