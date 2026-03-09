@@ -2,118 +2,21 @@ import os
 import threading
 import random
 import time
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from multiprocessing import Pool, cpu_count, Manager
 import math
 
 from PySide6.QtCore import QObject, Signal, QTimer  # Qt Signals für Thread-Sicherheit
 from PySide6.QtWidgets import QFileDialog  # Qt FileDialog
 
+from Process.search_process import SearchProcess
 from Service.explorer_service import ExplorerService
 from Service.reader_service import ReaderService
+from project_data import ProjectData
 
 
-#####################################################################################################################
-# Statische Hilfsfunktionen für Multiprocessing in Python                                                           #
-# Threads haben GIL (Global Interpreter Lock, darum sind CPU lastige Aufgaben mit Threads nicht parallel            #
-# Threads sind nur bei I/O lastigen Dingen echte Beschleunigung da sie an der gleichen Interpreter Instanz laufen   #
-# Multiprocessing erstellt eigene Interpreter Instance für jeden Process                                            #
-#####################################################################################################################
-def process_chunk_static(dateien_chunk, keywords, search_depth, threads_per_process, chunk_id, basis_pfad, progress_queue):
-    """OPTIMIERT: Mit besseren Werten für Threads"""
-    try:
-        from Service.reader_service import ReaderService
-        reader = ReaderService()
-        keyword_list = [k.strip().lower() for k in keywords.replace(',', ' ').split()]
-        treffer = []
-        chunk_size = len(dateien_chunk)
-
-        # Thread Executor
-        with ThreadPoolExecutor(max_workers=threads_per_process) as executor:
-            futures = {}  # dictionary
-            for dateipfad in dateien_chunk:
-                future = executor.submit(
-                    process_single_file_static,
-                    dateipfad,
-                    keyword_list,
-                    reader,
-                    search_depth,
-                    basis_pfad
-                )
-                futures[future] = dateipfad
-
-            verarbeitet_im_chunk = 0
-            for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    treffer.append(result)
-                    progress_queue.put(('treffer', result))
-
-                verarbeitet_im_chunk += 1
-                # Progress nur alle 5 Dateien (reduziert Queue-Last)
-                if verarbeitet_im_chunk % 5 == 0 or verarbeitet_im_chunk == chunk_size:
-                    progress_queue.put(('progress', chunk_id, verarbeitet_im_chunk, chunk_size))
-
-        return []
-
-    except Exception as e:
-        print(f"❌ KRITISCHER FEHLER in Prozess {chunk_id}: {e}")
-        return []
-
-
-def process_single_file_static(dateipfad, keyword_list, reader, search_depth, basis_pfad):
-    """Schnellere Textsuche"""
-    try:
-        # 🔥 max_chars erhöht für bessere Trefferquote
-        text = reader.extract_text(dateipfad, search_depth)
-        if not text:
-            return None
-
-        # 🔥 Einmal lower() für alle Keywords
-        text_lower = text.lower()
-        found = False
-        priority = 0
-        dateiname = None
-        kontext = None
-        is_text_generated = False
-        # 🔥 Keyword-Check in einem Durchgang
-        for i, keyword in enumerate(keyword_list, start=0):
-            if keyword in text_lower:
-                found = True
-                priority += len(keyword_list) - i
-                if not is_text_generated: # Kontext wird aus erstem treffer erzeugt.
-                    kontext = make_body_text_static(text, keyword, ctx=200)
-                    dateiname = os.path.basename(dateipfad)
-                    is_text_generated = True
-        if found:
-            return priority, "content", dateiname, dateipfad, kontext
-
-    except Exception as e:
-        print(f"❌ FEHLER in main_page_controller in Method process_single_file_static {e}")
-    return None
-
-
-def make_body_text_static(text, keyword, ctx=300):
-    """Keine Instance Methoden für Multiprocessing in Python (Ansonsten Pickling fehler) """
-    if not text or not keyword:
-        return None
-
-    idx = text.lower().find(keyword.lower())
-    if idx == -1:
-        return None
-
-    start = max(0, idx - ctx)
-    end = min(len(text), idx + len(keyword) + ctx)
-
-    kontext = text[start:end].replace("\n", " ").replace("\r", " ")
-    kontext = ' '.join(kontext.split())
-    return kontext
-
-
-######################################   CLASS   ###########################################################################################
 class MainPageController(QObject):  # QObject für Signal-Support
-    # Signale für Thread-sichere UI-Updates - DIREKT und SOFORT!
+    # Signale sind keine statics. Sie müssen aber auf Klassenebene stehen. siehe Signal - Descriptor
     add_result_signal = Signal(int, str, str, str, str)  # priority, title, body, treffer_typ, abs_path
     clear_results_signal = Signal()
     update_progress_signal = Signal(int)
@@ -135,7 +38,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         # self.ui_update_queue = deque()  # 👈 WEG DAMIT!
 
         # Multiprocessing berechnen der Process Counts
-        cpu_cores = cpu_count()
+        cpu_cores = ProjectData.get_process_cores()
         self.num_processes = max(1, cpu_cores - 2)  # Min 1 Kern für UI frei lassen
         self.threads_per_process = 4  # Mehr Threads für I/O TODO User könnte das selbst steuern
         print(f"Performance: {self.num_processes} Prozesse mit je {self.threads_per_process} Threads")
@@ -278,7 +181,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
                 results = []
                 for i, chunk in enumerate(chunks):
                     result = pool.apply_async(
-                        process_chunk_static,
+                        SearchProcess.process_chunk_static,
                         (chunk, keywords, search_depth, self.threads_per_process, i, self.view.basis_pfad, progress_queue)
                     )
                     results.append(result)
