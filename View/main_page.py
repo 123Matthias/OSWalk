@@ -6,18 +6,20 @@ import threading
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QLineEdit, QProgressBar, QScrollArea,
-    QFrame, QSplitter, QSizePolicy, QGraphicsDropShadowEffect, QSpinBox
+    QFrame, QSplitter, QSizePolicy, QGraphicsDropShadowEffect, QSpinBox, QMessageBox, QMenu
 )
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject, QTimer, Property
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, Signal, QObject, QTimer, Property, QProcess
 from PySide6.QtGui import QFont, QPalette, QColor, QIcon, QPainter, QBrush, QLinearGradient, QKeySequence, QShortcut, \
-    QPixmap, QIntValidator
+    QPixmap, QIntValidator, QAction
 from PySide6.QtWidgets import QApplication
 
 from Controller.main_page_controller import MainPageController
 from Service.explorer_service import ExplorerService
 
 from View.gui_console import GUIConsole
+from View.settings_page import SettingsWindow
 from View.theme_manager import ThemeManager
+from language import Language
 from project_data import ProjectData
 from stylesheet.app_colors import DarkColors, LightColors
 
@@ -102,7 +104,6 @@ class SearchResultCard(QFrame):
 
         # Initiale Farben
         self.colors = self.theme_manager.get_colors()
-
 
 
         layout = QVBoxLayout(self)
@@ -240,8 +241,16 @@ class MainPage(QMainWindow):
         self.colors = self.theme_manager.get_colors()
 
         # Fenster-Setup
-        self.setWindowTitle("")
+        self.setWindowTitle("KeySeek")
         self.setMinimumSize(1000, 700)
+
+        # Menu Bar
+        self.extras_menu = self.menuBar().addMenu("Extras")
+
+        settings_action = QAction("Einstellungen", self)
+        settings_action.triggered.connect(self.open_settings)
+        self.extras_menu.addAction(settings_action)
+
 
         # Scroll Attribute für scroll down lazy loading
         self.scroll_busy = False
@@ -276,6 +285,30 @@ class MainPage(QMainWindow):
         self.setup_keyboard_shortcuts()
 
         self.update_all_widgets_style() # Alle Gui Elemente Style laden
+
+    def open_settings(self):
+        dialog = SettingsWindow()
+        last_language = ProjectData.language
+        last_search_depth = ProjectData.search_depth
+        last_snippet_size = ProjectData.snippet_size
+
+        dialog.exec()  # Blockiert bis Fenster geschlossen
+
+        # Nachdem Fenster geschlossen wurde:
+        needs_restart = False
+
+        if ProjectData.language != last_language:
+            self.set_self_destroying_message("Sprache geändert - Neustart erforderlich")
+            needs_restart = True
+
+        if needs_restart:
+            QProcess.startDetached(sys.executable, sys.argv)
+            # Diese App beenden
+            QApplication.quit()
+
+
+
+
 
     def set_matches_count(self, count):
         self.matches_count = count
@@ -340,11 +373,10 @@ class MainPage(QMainWindow):
 
         # Input-Feld für search_depth
         self.search_depth_input = QLineEdit()
-        self.search_depth_input.setPlaceholderText("1000")
+        self.search_depth_input.setText(str(ProjectData.search_depth))
         self.search_depth_input.setToolTip("Länge der Suchtiefe in Dateien in Zeichen.\nEine Seite hat etwa 2000 Zeichen.\nWeniger Suchtiefe beschleunigt die Suche ist aber ungenauer.")
         self.search_depth_input.setAlignment(Qt.AlignCenter)
         self.search_depth_input.setFocusPolicy(Qt.ClickFocus)
-
         header_layout.addWidget(self.search_depth_input)
 
         # Lupe
@@ -406,7 +438,7 @@ class MainPage(QMainWindow):
         self.h_box_path.setAlignment(Qt.AlignCenter)
 
         self.text_label = QLabel("Suchpfad: ")
-        self.pfad_label = QLabel("Kein Pfad gewählt")
+        self.pfad_label = QLabel(Language.get("MainPage", "noPathMessage"))
 
 
 
@@ -1126,8 +1158,6 @@ class MainPage(QMainWindow):
 
         print(f"✅ UI aktualisiert mit {self.theme_manager._current_theme} Theme")
 
-
-
     def on_theme_changed(self):
         """Wird bei Theme-Wechsel automatisch aufgerufen"""
         print("🎨 MainPage: Theme wurde geändert, aktualisiere UI...")
@@ -1138,35 +1168,70 @@ class MainPage(QMainWindow):
         # ALLE Widgets updaten
         self.update_all_widgets_style()
 
-# Für die Integration mit dem existierenden Controller
-class PySideMainPage:
-    """Wrapper-Klasse für nahtlose Integration"""
+    def set_self_destroying_message(self, text, duration=3000):
+        """
+        Centered, temporary message over MainWindow with border, background and Python logo.
+        """
+        # Container über MainWindow
+        container = QWidget(self)
+        container.setAttribute(Qt.WA_TransparentForMouseEvents)
+        container.setAttribute(Qt.WA_TranslucentBackground)
+        container.setGeometry(self.rect())
 
-    def __init__(self, controller):
-        self.app = QApplication.instance()
-        if not self.app:
-            self.app = QApplication(sys.argv)
+        # Layout für Zentrierung
+        layout = QVBoxLayout(container)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(0, 0, 0, 0)
 
-        self.window = MainPage(controller)
-        self.window.show()
+        # Haupt-Widget
+        msg_widget = QWidget()
 
-    def run(self):
-        return self.app.exec()
+        # Horizontales Layout für Icon + Text nebeneinander
+        msg_layout = QHBoxLayout(msg_widget)
+        msg_layout.setAlignment(Qt.AlignCenter)
+        msg_layout.setContentsMargins(25, 20, 25, 20)
+        msg_layout.setSpacing(15)
 
-    def add_result(self, title, body, treffer_typ, abs_path):
-        self.window.add_result(title, body, treffer_typ, abs_path)
+        # Icon Label mit Python-Logo
+        icon_label = QLabel()
+        python_icon = QPixmap("assets/img/pythonFett.png")
+        python_icon = python_icon.scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        icon_label.setPixmap(python_icon)
 
-    def clear_results(self):
-        self.window.clear_results()
+        # Text Label
+        text_label = QLabel(text)
+        text_label.setWordWrap(True)
 
-    def show_status(self, message, typ="info"):
-        self.window.show_status(message, typ)
+        # Stylisches QSS
+        msg_widget.setStyleSheet(f"""
+            QWidget {{
+                background-color: {self.colors.UI.CONTAINER_BG.name()};
+                border: 2px solid {self.colors.Primary.MAIN.name()};
+                border-radius: 12px;
+            }}
 
-    def set_progress(self, value):
-        self.window.set_progress(value)
+            QLabel {{
+                color: {self.colors.Text.PRIMARY.name()};
+                font-size: 15px;
+                font-weight: 500;
+                background: transparent;
+                border: none;
+            }}
+        """)
 
-    def update_path_label(self, path):
-        self.window.update_path_label(path)
+        msg_layout.addWidget(icon_label)
+        msg_layout.addWidget(text_label)
+        layout.addWidget(msg_widget)
 
-    def set_search_loading(self, is_loading: bool):
-        self.window.set_search_loading(is_loading)
+        container.show()
+
+        # Fade-Out Animation auf dem msg_widget
+        self.fade_anim = QPropertyAnimation(msg_widget, b"windowOpacity")
+        self.fade_anim.setDuration(1000)
+        self.fade_anim.setStartValue(1.0)
+        self.fade_anim.setEndValue(0.0)
+        self.fade_anim.finished.connect(container.deleteLater)
+
+        # Start nach duration
+        QTimer.singleShot(duration, self.fade_anim.start)
+

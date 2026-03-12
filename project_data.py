@@ -6,6 +6,24 @@ class ProjectData:
 
     _physical_cores = None
     _logical_cores = None
+
+    keyword_weight = False
+    search_depth = 4000
+    snippet_size = 250
+    default_search_path = "~"
+    language = "English"
+
+    @classmethod
+    def set_language(cls, language):
+        cls.language = language
+
+    @classmethod
+    def set_settings(cls, keyword_weight, search_depth, snippet_size, default_search_path, language):
+        cls.keyword_weight = keyword_weight
+        cls.search_depth = search_depth
+        cls.snippet_size = snippet_size
+        cls.default_search_path = default_search_path
+        cls.language = language
     
 
     @classmethod

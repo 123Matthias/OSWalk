@@ -7,11 +7,13 @@
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from project_data import ProjectData
+
 
 class SearchProcess:
 
     @staticmethod
-    def process_chunk_static(dateien_chunk, keywords, search_depth, threads_per_process, chunk_id, progress_queue):
+    def process_chunk_static(dateien_chunk, keywords, search_depth, snippet_size, threads_per_process, chunk_id, progress_queue):
         """OPTIMIERT: Mit besseren Werten für Threads"""
         try:
             from Service.reader_service import ReaderService
@@ -30,6 +32,7 @@ class SearchProcess:
                         keyword_list,
                         reader,
                         search_depth,
+                        snippet_size
                     )
                     futures[future] = dateipfad
 
@@ -52,7 +55,7 @@ class SearchProcess:
             return []
 
     @staticmethod
-    def _process_single_file_static(dateipfad, keyword_list, reader, search_depth):
+    def _process_single_file_static(dateipfad, keyword_list, reader, search_depth, snippet_size):
         """Schnellere Textsuche"""
         try:
             # 🔥 max_chars erhöht für bessere Trefferquote
@@ -73,7 +76,7 @@ class SearchProcess:
                     found = True
                     priority += len(keyword_list) - i
                     if not is_text_generated: # Kontext wird aus erstem treffer erzeugt.
-                        kontext = SearchProcess._make_body_text_static(text, keyword, ctx=250)
+                        kontext = SearchProcess._make_body_text_static(text, keyword, snippet_size)
                         dateiname = os.path.basename(dateipfad)
                         is_text_generated = True
             if found:
@@ -84,7 +87,7 @@ class SearchProcess:
         return None
 
     @staticmethod
-    def _make_body_text_static(text, keyword, ctx=300):
+    def _make_body_text_static(text, keyword, snippet_size):
         """Keine Instance Methoden für Multiprocessing in Python (Ansonsten Pickling fehler) """
         if not text or not keyword:
             return None
@@ -93,8 +96,8 @@ class SearchProcess:
         if idx == -1:
             return None
 
-        start = max(0, idx - ctx)
-        end = min(len(text), idx + len(keyword) + ctx)
+        start = max(0, idx - snippet_size)
+        end = min(len(text), idx + len(keyword) + snippet_size)
 
         kontext = text[start:end].replace("\n", " ").replace("\r", " ")
         kontext = ' '.join(kontext.split())

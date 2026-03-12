@@ -1,0 +1,14 @@
+{
+  "MainPage": {
+    "placeholderSearch": "Search...",
+    "noPathMessage": "Please select a path"
+  },
+  "HelpPage": {
+    "title": "Help",
+    "welcome": "Welcome to Help"
+  },
+  "SettingsPage": {
+    "title": "Settings",
+    "language": "Language"
+  }
+}

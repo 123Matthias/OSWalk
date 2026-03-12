@@ -20,6 +20,8 @@ import csv
 # PowerPoint
 from pptx import Presentation
 
+from project_data import ProjectData
+
 
 class ReaderService:
     """
@@ -55,7 +57,7 @@ class ReaderService:
         }
 
 
-    def extract_text(self, filepath: str, max_chars: Optional[int] = 1000) -> Optional[str]:
+    def extract_text(self, filepath: str, max_chars: Optional[int] = ProjectData.search_depth) -> Optional[str]:
         """
         Zentrale Methode: erkennt Dateiformat und ruft passende Extraktionsmethode auf.
 
@@ -63,6 +65,7 @@ class ReaderService:
             filepath: Pfad zur Datei
             max_chars: Maximale Zeichenanzahl - WICHTIG: Dies ist die SUCHTIEFE!
                       Sobald diese Zeichenanzahl erreicht ist, wird abgebrochen.
+                      außer bei pdf da liest er immer die 1. Seite
 
         Returns:
             Extrahierter Text oder None bei Fehler
@@ -603,16 +606,6 @@ class ReaderService:
         print(f"ℹ️ Generische Extraktion für {filepath} - versuche als Textdatei")
         return self._extract_text_file(filepath, max_chars)
 
-    # ===== Hilfsmethoden =====
-    def get_snippet(self, filepath: str, keywords: str = "", context_chars: int = 200) -> Optional[str]:
-        """Erste 500 Zeichen als Snippet."""
-        text = self.extract_text(filepath, max_chars=None)
-        if not text:
-            return f"Path: {filepath}"
-
-        # NFC-normalisieren für konsistenten Vergleich
-        text = unicodedata.normalize('NFC', text)
-        return text[:500] + "..."
 
     def is_supported(self, filepath: str) -> bool:
         ext = os.path.splitext(filepath)[1].lower()

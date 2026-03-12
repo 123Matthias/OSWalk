@@ -25,6 +25,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
     show_status_signal = Signal(str, str)  # message, typ
     search_finished_signal = Signal(bool)
     matches_count_signal = Signal(int)
+    self_destroying_message_signal = Signal(str)
 
     def __init__(self):
         super().__init__()  # QObject Init aufrufen
@@ -74,6 +75,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.search_finished_signal.connect(view.sort_results)
         self.search_finished_signal.connect(view.refresh_results_display)
         self.matches_count_signal.connect(view.set_matches_count)
+        self.self_destroying_message_signal.connect(view.set_self_destroying_message)
 
         # KEIN Timer mehr nötig! Signals werden sofort im Haupt-Thread verarbeitet
 
@@ -103,11 +105,12 @@ class MainPageController(QObject):  # QObject für Signal-Support
         keywords = self.view.keywords_input.text()
         # reset matches
         self.matches = 0
-        search_depth = int(self.view.search_depth_input.text()) if self.view.search_depth_input.text().isdigit() else 1000 # default einfach 1000
+        search_depth = int(self.view.search_depth_input.text()) if self.view.search_depth_input.text().isdigit() else ProjectData.search_depth # default einfach 4000
         self.view.search_depth_input.setText(str(search_depth))
 
         if not self.path_selected_ui:
             print("kein Pfad ausgewählt")
+            self.self_destroying_message_signal.emit("wähle einen Pfad aus")
             return
         if not keywords:
             print("gib einen Suchberiff ein")
@@ -206,7 +209,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
                 for i, chunk in enumerate(chunks):
                     result = pool.apply_async(
                         SearchProcess.process_chunk_static,
-                        (chunk, keywords, search_depth, self.threads_per_process, i, progress_queue)
+                        (chunk, keywords, search_depth, ProjectData.snippet_size, self.threads_per_process, i, progress_queue)
                     )
                     results.append(result)
 
