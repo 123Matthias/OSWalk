@@ -1,36 +1,61 @@
-# OSWalk
+# KeySearch App
 
-Suchmaschine für den PC.
-Eine Anwendung zum rekursiven Durchsuchen von Dateiinhalten in einem ausgewählten Ordner.
-Ein Release zum Installieren sollte es bis 04 2026 geben.
+Desktop search engine.
+
+A desktop application for recursively searching file contents inside a selected folder.  
+An installable release is planned for **04/2026**.
 
 ## Features
 
-- **Unterstützt Linux MacOSX Windows** - Suchmaschine für einen PC die wie Web Suchmaschinen funktioniert
-- **Volltextsuche** - Dateien werden eingelesen und nach bestimmten Keywords durchsucht
-- **Suchtiefe** - kann eingestellt werden nach Ziffern. bspw. nur die ersten 500 charakter im Dokument
-- **GUI-Oberfläche** - Auswahl eines Hauptordners für die rekursive Suche
-- **PDF-Suche** - Speziell: Suche nach Kundennummern Namen usw. im PDF Inhalt
-- **optional OCR-Integration** - Texterkennung in PNG-Bildern mit pytesseract
-- **Terminal** - print() wird in Console in GUI übergeben
-- **Dateiformate** - können nach Belieben eingebaut werden. Die meisten Standardformate sind bereits implementiert bis auf Bildformate
-- **Suchtreffer** - Treffer im Dateinamen werden nicht im Inhalt durchsucht. Diese werden übersprungen
-- **Multiprocessing und Multithreading** - für schnelles Suchen
-- **Dark Theme Light Theme** - kann mit Betriebssystem umgeschaltet werden
-- **Priority** - wird anhand der Stelle der Suchbegriffe berechnet (Max Muster Rechnung) = (3+2+1 ergibt Summe = 6) Das wird anschließend auf max. Priority 1.0 umgerechnet. Enthällt der Treffer nur (Muster) ist die Priority 2 / 6 = 0,33 gerundet 0,3. Siehe Screenshots unten. kann aber in den Einstellungen ausgeschaltet werden
-- **Einstellunge** - Menü zum Einstellen von Default Werten für Suchtiefe, Snippet Größe, Path und Sprache. 
-- **Content Search** - wenn der Wert der berechneten Priorität unter 0,5 von maximal 1,0 ist wird die Content Suche gemacht. über 0,5 ist es ein Filename Treffer und die Contentsuche wird übersprungen. Findet er im Filepath (Filename) gar nichts wird die Contentsuche immer gemacht.
-- **Language Pack** - wird mit json files gemacht. Das .json wird geladen bspw English.json und mit einer Language.get() methode gelesen. In den Einstellungen gibs ein Dropdown das alle xy.json Dateinamen liest und in die Liste schreibt.
+- **Supports Linux, macOS, and Windows** – A desktop search engine that works similarly to web search engines
+- **Full-text search** – Files are read and searched for specific keywords
+- **Search depth** – Can be limited to a certain number of characters (e.g. search only the first 500 characters of a document)
+- **GUI interface** – Select a root folder for recursive searching
+- **PDF search** – Especially useful for searching customer numbers, names, etc. inside PDF documents
+- **Optional OCR integration** – Text recognition in PNG images using pytesseract
+- **Terminal output** – `print()` output is forwarded to a console inside the GUI
+- **File formats** – Additional formats can easily be added. Most common formats are already implemented (except most image formats)
+- **Search result behavior** – If a match is found in the filename, the file content is skipped
+- **Multiprocessing & multithreading** – Enables fast searching
+- **Dark / Light theme** – Automatically switches with the operating system theme
+- **Priority system** – Ranking is calculated based on the position of the search terms
+
+    Example calculation:
+    
+    (3 + 2 + 1 = 6) → normalized to a maximum priority of **1.0**
+    
+    If only `(pattern)` is found:
+    
+    2 / 6 = 0.33 → rounded to **0.3**
+    
+    This behavior can be disabled in the settings.
+
+- **Settings menu** – Configure default values such as search depth, snippet size, path, and language
+- **Content search logic**
+  - If calculated priority **< 0.5**, a **content search** is performed
+  - If priority **> 0.5**, the match is treated as a **filename match** and content search is skipped
+  - If nothing is found in the file path or filename, content search is always performed
+- **Language packs** – Implemented using JSON files  
+  - Example: `English.json`  
+  - Loaded using a `Language.get()` method  
+  - The settings menu automatically lists all `*.json` language files in a dropdown
+
+## TODO before Release
+
+- Terminal `print` output not fully implemented
+- Code review and documentation/comments
+
+## Screenshots
+
+### PySide (currently used for the application, including QSS styling)
+
+![PySideDesign](PySideDesignDark.png)  
+![PySideDesignConsoleEnabled](PySideDesignDarkKonsole.png)  
+![PySideDesignLight](PySideDesignLight.png)
+
+### bootstrapttk design (no longer used)
+
+![bootstrapttkDesign](bootstrapttkDesign.png)
 
 
-## TODOs bis Release
-- print Terminal Ausgaben unvollständig
-- Code Review und Kommentierung
 
-## Screenshot App Main Page
-### PySide (enthällt auch QSS zum Stylen) und wird für die App jetzt verwendet
-![PySideDesign.png](PySideDesignDark.png)
-![PySideDesignConsoleEnabled.png](PySideDesignDarkKonsole.png)
-![PySideDesign.png](PySideDesignLight.png)
-### bootstrapttk Design wird nicht mehr verwendet für die App
-![exampleApp.png](bootstrapttkDesign.png)
