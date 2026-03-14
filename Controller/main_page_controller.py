@@ -7,8 +7,8 @@ import time
 from multiprocessing import Pool, Manager
 import math
 
-from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QFileDialog
+from PySide6.QtCore import QObject, Signal, Qt
+from PySide6.QtWidgets import QFileDialog, QApplication
 
 from Process.search_process import SearchProcess
 from Service.explorer_service import ExplorerService
@@ -27,6 +27,7 @@ class MainPageController(QObject):  # QObject für Signal-Support
     search_finished_signal = Signal(bool)
     matches_count_signal = Signal(int)
     no_path_selected_signal = Signal()
+    wait_for_cache_file_paths_signal = Signal(bool)
 
     def __init__(self):
         super().__init__()  # QObject Init aufrufen
@@ -77,6 +78,10 @@ class MainPageController(QObject):  # QObject für Signal-Support
         self.search_finished_signal.connect(view.refresh_results_display)
         self.matches_count_signal.connect(view.set_matches_count)
         self.no_path_selected_signal.connect(lambda: Messages.set_no_path_selected(view))
+
+        self.wait_for_cache_file_paths_signal.connect(
+            lambda show: Messages.show_caching_spinner(view, show)
+        )
 
         # KEIN Timer mehr nötig! Signals werden sofort im Haupt-Thread verarbeitet
 
@@ -163,11 +168,15 @@ class MainPageController(QObject):  # QObject für Signal-Support
         try:
             # Collecting all file paths. If not path choose in GUI is done then take cache
             if not self.all_files_cache:
-                print("start cashing...")
+                self.wait_for_cache_file_paths_signal.emit(True)
+
+                print("start caching...")
                 print("Collecting all files in selected path ...")
                 all_files = self._collect_files()
                 self.all_files_cache = all_files
                 print("Pfade sammeln erledigt")
+                self.wait_for_cache_file_paths_signal.emit(False)
+
             else:
                 all_files = self.all_files_cache
                 print("Using cached files from the last search")

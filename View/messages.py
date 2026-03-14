@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QApplication
+from PySide6.QtGui import QPixmap, QMovie
+
 
 class Messages:
 
@@ -40,8 +41,7 @@ class Messages:
         msg_widget.setStyleSheet(f"""
             QWidget {{
                 background-color: {colors.UI.CONTAINER_BG.name()};
-                border: 2px solid {colors.Primary.MAIN.name()};
-                border-radius: 8px;
+                border:none;
             }}
             QLabel {{
                 color: {colors.Text.PRIMARY.name()};
@@ -93,3 +93,102 @@ class Messages:
         # Nach duration wieder normalen Style
         QTimer.singleShot(duration, parent.update_path_button_style)
         QTimer.singleShot(duration, parent.update_pfad_label_style)
+
+
+
+
+
+
+    def show_caching_spinner(parent: QWidget, show: bool) -> None:
+        colors = parent.colors
+
+        if not show:
+            for child in parent.findChildren(QWidget):
+                if hasattr(child, "_is_caching_msg") and child._is_caching_msg:
+                    if hasattr(child, "_spinner_timer"):
+                        child._spinner_timer.stop()
+                    child.deleteLater()
+            return
+
+        # Vorhandene entfernen
+        for child in parent.findChildren(QWidget):
+            if hasattr(child, "_is_caching_msg") and child._is_caching_msg:
+                if hasattr(child, "_spinner_timer"):
+                    child._spinner_timer.stop()
+                child.deleteLater()
+
+        container = QWidget(parent)
+        container._is_caching_msg = True
+
+        layout = QVBoxLayout(container)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(15)
+
+        # Text
+        text_label = QLabel("Caching file paths...")
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setStyleSheet(f"""
+        font-size: 14px;
+        color: {colors.Text.PRIMARY.name()};
+        border: none;
+        """)
+
+        # SPINNER - selbst gemacht mit QTimer und Unicode
+        spinner_label = QLabel()
+        spinner_label.setAlignment(Qt.AlignCenter)
+        spinner_label.setStyleSheet(f"""
+            font-size: 32px;
+            color: {colors.Primary.MAIN.name()};
+            border: none;
+        """)
+
+        # Spinner-Frames (verschiedene Unicode-Symbole)
+        frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"]
+        # Alternative: ["◴", "◷", "◶", "◵"]
+        # Alternative: ["←", "↖", "↑", "↗", "→", "↘", "↓", "↙"]
+        # Alternative: ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
+
+        frame_index = 0
+
+        def update_spinner():
+            nonlocal frame_index
+            frame_index = (frame_index + 1) % len(frames)
+            spinner_label.setText(frames[frame_index])
+
+        spinner_timer = QTimer()
+        spinner_timer.timeout.connect(update_spinner)
+        spinner_timer.start(100)  # 100ms = 10fps
+
+        container._spinner_timer = spinner_timer
+
+        # Kleiner Hinweis
+        hint_label = QLabel("This may take a moment")
+        hint_label.setAlignment(Qt.AlignCenter)
+        hint_label.setStyleSheet(f"""
+            font-size: 12px;
+            color: {colors.Text.SECONDARY.name()};
+            opacity: 0.8;
+            border: none;
+        """)
+
+        layout.addWidget(text_label)
+        layout.addWidget(spinner_label)
+        layout.addWidget(hint_label)
+
+        container.setStyleSheet(f"""
+            QWidget {{
+                background-color: {colors.UI.CONTAINER_BG.name()};
+                border: 1px solid {colors.Primary.MAIN.name()};
+                border-radius: 8px;
+                padding: 5px 5px 5px 5px;
+            }}
+        """)
+
+        container.adjustSize()
+        container.show()
+
+        x = (parent.width() - container.width()) // 2
+        y = (parent.height() - container.height()) // 2
+        container.move(x, y)
+
+        QApplication.processEvents()
